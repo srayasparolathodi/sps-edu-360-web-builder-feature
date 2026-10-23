@@ -11,20 +11,26 @@
     "lint": "pnpm exec nx run-many -t lint",
     "tsc": "pnpm exec nx run-many -t tsc",
     "validate": "pnpm format:write && pnpm tsc && pnpm lint",
-    "prepare": "husky"
+    "prepare": "husky",
+    "build:web-builder": "pnpm --filter @spsedu360/web-builder build",
+    "deploy:web-builder": "pnpm build:web-builder && wrangler deploy"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@nx/angular": "^20.4.6",
-    "spsedu360": "file:"
+    "@nx/angular": "^24.0.0"
   },
   "devDependencies": {
     "husky": "^9.1.7",
-    "lint-staged": "^15.4.3",
-    "nx": "^20.4.4",
-    "prettier": "^3.5.1",
-    "userland": "^0.4.3"
-  }
+    "lint-staged": "^17.6.0",
+    "nx": "^24.0.0",
+    "prettier": "^3.9.10",
+    "userland": "^0.4.3",
+    "wrangler": "^4.152.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@12.15.0"
 }

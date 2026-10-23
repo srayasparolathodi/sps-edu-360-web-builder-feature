@@ -1,36 +1,41 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Page Studio (web-builder)
 
-## Getting Started
+Angular 22 drag-and-drop page builder for SPS EDU 360. It runs fully in the
+browser and is deployed to Cloudflare Workers as static assets.
 
-First, run the development server:
+## Development
+
+From the repository root:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+pnpm --filter @spsedu360/web-builder dev    # http://localhost:3002
+pnpm --filter @spsedu360/web-builder test   # builder-model unit tests
+pnpm --filter @spsedu360/web-builder lint   # type-check
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Build
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm build:web-builder
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Output goes to `apps/web-builder/dist/browser`.
 
-## Learn More
+## Deploy (Cloudflare Workers)
 
-To learn more about Next.js, take a look at the following resources:
+Deployment is configured in [`wrangler.jsonc`](../../wrangler.jsonc) at the
+repository root. `wrangler deploy` runs the build first, then uploads
+`dist/browser` as a static-assets Worker with single-page-app fallback.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+pnpm deploy:web-builder
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Cloudflare Workers Builds settings:
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Setting        | Value                |
+| -------------- | -------------------- |
+| Root directory | `/` (repository root) |
+| Build command  | _(leave empty)_      |
+| Deploy command | `npx wrangler deploy` |

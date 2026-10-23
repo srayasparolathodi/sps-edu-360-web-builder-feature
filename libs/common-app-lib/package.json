@@ -11,11 +11,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "@spsedu360/common-app-lib": "file:"
-  },
   "devDependencies": {
-    "@nestjs/common": "^11.0.1",
-    "@types/node": "^22.13.4"
+    "@nestjs/common": "^12.2.0",
+    "@types/node": "^24.10.0",
+    "typescript": "~6.0.3"
   }
 }

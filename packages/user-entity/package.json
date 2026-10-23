@@ -12,21 +12,20 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@spsedu360/user-entity": "file:",
-    "class-transformer": "*",
-    "class-validator": "*",
-    "prisma-class-validator-generator": "^5.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "prisma-class-validator-generator": "^6.2.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.7.3",
-    "zod": "^3.24.2"
+    "typescript": "~6.0.3",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@nestjs/cli": "^11.0.0",
-    "@nestjs/swagger": "^11.0.3",
-    "@prisma/client": "^6.3.1",
-    "@types/node": "^22.13.4",
-    "@types/validator": "^13.12.2",
-    "prisma": "^6.3.1"
+    "@nestjs/cli": "^12.0.10",
+    "@nestjs/swagger": "^12.0.3",
+    "@prisma/client": "^6.19.3",
+    "@types/node": "^24.10.0",
+    "@types/validator": "^13.15.10",
+    "prisma": "^6.19.3"
   },
   "peerDependencies": {
     "class-transformer": "*",

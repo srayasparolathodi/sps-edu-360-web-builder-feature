@@ -2,12 +2,12 @@
   "targetDefaults": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["{projectRoot}/.next, build, dist"],
+      "outputs": ["{projectRoot}/dist", "{projectRoot}/build"],
       "cache": true
     },
     "dev": {
       "dependsOn": ["^dev"],
-      "outputs": ["{projectRoot}/.next, build, dist"],
+      "outputs": ["{projectRoot}/dist", "{projectRoot}/build"],
       "cache": true
     },
     "lint": {

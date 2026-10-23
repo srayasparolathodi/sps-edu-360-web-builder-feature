@@ -14,25 +14,25 @@
             "index": "src/index.html",
             "tsConfig": "tsconfig.app.json",
             "styles": ["src/styles.scss"],
-            "assets": [{"glob": "**/*", "input": "public", "output": "/"}],
+            "assets": [{ "glob": "**/*", "input": "public", "output": "/" }],
             "outputPath": "dist"
           },
           "configurations": {
-            "production": {"outputHashing": "all"},
-            "development": {"optimization": false, "sourceMap": true}
+            "production": { "outputHashing": "all" },
+            "development": { "optimization": false, "sourceMap": true }
           },
           "defaultConfiguration": "production"
         },
         "serve": {
           "builder": "@angular/build:dev-server",
           "configurations": {
-            "development": {"buildTarget": "web-builder:build:development"},
-            "production": {"buildTarget": "web-builder:build:production"}
+            "development": { "buildTarget": "web-builder:build:development" },
+            "production": { "buildTarget": "web-builder:build:production" }
           },
           "defaultConfiguration": "development"
         }
       }
     }
   },
-  "cli": {"analytics": false}
+  "cli": { "analytics": false }
 }

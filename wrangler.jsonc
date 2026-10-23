@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Must match the Worker name in the Cloudflare dashboard.
+  "name": "sps-edu-360-web-builder-feature",
+  "compatibility_date": "2026-10-01",
+  // Builds the Angular app before every `wrangler deploy`, so Workers Builds
+  // only needs the default deploy command (`npx wrangler deploy`).
+  "build": {
+    "command": "pnpm build:web-builder"
+  },
+  // Static-assets-only Worker: serves the Angular build output, with unknown
+  // paths falling back to index.html for client-side routing.
+  "assets": {
+    "directory": "./apps/web-builder/dist/browser",
+    "not_found_handling": "single-page-application"
+  }
+}

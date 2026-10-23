@@ -5,6 +5,7 @@ import {
   NestInterceptor,
   ExecutionContext,
   CallHandler,
+  Optional,
 } from '@nestjs/common'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import * as winston from 'winston'
@@ -22,7 +23,7 @@ export class CustomLogger extends ConsoleLogger {
   private static appName: string = ''
   private currentExecutor: string = ''
   private logger: winston.Logger
-  constructor(context?: CustomLoggerOptions) {
+  constructor(@Optional() context?: CustomLoggerOptions) {
     super(
       `${CustomLogger.appName}${context?.currentExecutor ? ` - ${context.currentExecutor}` : ''}`,
     )
