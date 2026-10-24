@@ -1,8 +1,0 @@
-export { App } from './App.model'
-export { AppRoles } from './AppRoles.model'
-export { Group } from './Group.model'
-export { RoleActions } from './RoleActions.model'
-export { User } from './User.model'
-export { UserApp } from './UserApp.model'
-export { UserGroup } from './UserGroup.model'
-export { UserRole } from './UserRole.model'

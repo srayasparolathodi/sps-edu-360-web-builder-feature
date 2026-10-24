@@ -1,0 +1,133 @@
+@let cfg = config();
+@let v = view();
+<div class="data-table" [class.dense]="cfg.dense" [class.striped]="cfg.striped" [class.sticky]="cfg.stickyHeader">
+  @if (v.label || cfg.search) {
+    <div class="dt-toolbar">
+      @if (v.label) { <h3 class="dt-title">{{ v.label }}</h3> }
+      <span class="toolbar-spacer"></span>
+      @if (cfg.search && !isTree()) {
+        <mat-form-field appearance="outline" class="dt-search" subscriptSizing="dynamic">
+          <mat-icon matPrefix>search</mat-icon>
+          <input matInput placeholder="Search" aria-label="Search rows" [ngModel]="state().search" (ngModelChange)="search($event)" [disabled]="!live()">
+        </mat-form-field>
+      }
+    </div>
+  }
+  @if (loading()) { <mat-progress-bar mode="indeterminate" class="dt-loading" /> }
+
+  @if (cfg.pagination === 'virtual' && !isTree()) {
+    <div class="dt-head dt-grid" [style.grid-template-columns]="gridColumns()" role="row">
+      @if (cfg.selection === 'multiple') { <span class="dt-check"></span> }
+      @for (column of visibleColumns(); track column.key) { <span [class]="'dt-th align-' + (column.align ?? 'start')">{{ column.label }}</span> }
+    </div>
+    <cdk-virtual-scroll-viewport itemSize="48" class="dt-viewport" role="rowgroup">
+      <div *cdkVirtualFor="let row of rows(); let i = index" class="dt-grid dt-row" [style.grid-template-columns]="gridColumns()" role="row" (click)="click(row, i)" [class.selected]="isSelected(row, i)">
+        @if (cfg.selection !== 'none') { <mat-checkbox class="dt-check" [checked]="isSelected(row, i)" (click)="$event.stopPropagation()" (change)="toggle(row, i)" aria-label="Select row" /> }
+        @for (column of visibleColumns(); track column.key) { <span [class]="'dt-td align-' + (column.align ?? 'start')">{{ text(row, column) }}</span> }
+      </div>
+    </cdk-virtual-scroll-viewport>
+  } @else {
+    <div class="dt-scroll">
+      <table>
+        @if (cfg.columns.length) {
+          <colgroup>@if (cfg.selection !== 'none') { <col style="width: 44px"> }@for (column of visibleColumns(); track column.key) { <col [style.width]="column.width || null"> }</colgroup>
+        }
+        <thead>
+          @if (headerGroups(); as groups) {
+            <tr class="dt-group-head">
+              @if (cfg.selection !== 'none') { <th></th> }
+              @for (group of groups; track $index) { <th [attr.colspan]="group.span" [class.empty]="!group.label">{{ group.label }}</th> }
+            </tr>
+          }
+          <tr>
+            @if (cfg.selection !== 'none') {
+              <th class="dt-check">@if (cfg.selection === 'multiple') { <mat-checkbox [checked]="allSelected()" (change)="toggleAll($event.checked)" [disabled]="!live()" aria-label="Select all rows" /> }</th>
+            }
+            @for (column of visibleColumns(); track column.key) {
+              <th [class]="'align-' + (column.align ?? 'start')" [attr.aria-sort]="ariaSort(column)">
+                @if (column.sortable && !isTree()) {
+                  <button type="button" class="dt-sort" [class.active]="state().sort === column.key" (click)="sortBy(column)">{{ column.label }}<mat-icon>{{ sortIcon(column) }}</mat-icon></button>
+                } @else { {{ column.label }} }
+              </th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @if (isTree()) {
+            @for (node of treeRows(); track node.key) {
+              <tr (click)="click(node.row, $index)" [class.selected]="isSelected(node.row, $index)">
+                @if (cfg.selection !== 'none') { <td class="dt-check"><mat-checkbox [checked]="isSelected(node.row, $index)" (click)="$event.stopPropagation()" (change)="toggle(node.row, $index)" aria-label="Select row" /></td> }
+                @for (column of visibleColumns(); track column.key; let first = $first) {
+                  <td [class]="'align-' + (column.align ?? 'start')">
+                    @if (first) {
+                      <span class="tree-cell" [style.padding-left.px]="node.depth * 22">
+                        @if (hasChildren(node)) {
+                          <button mat-icon-button class="tree-toggle" [attr.aria-expanded]="expanded().has(node.key)" [attr.aria-label]="(expanded().has(node.key) ? 'Collapse ' : 'Expand ') + text(node.row, column)" (click)="toggleNode(node); $event.stopPropagation()">
+                            <mat-icon>{{ loadingNodes().has(node.key) ? 'progress_activity' : expanded().has(node.key) ? 'expand_more' : 'chevron_right' }}</mat-icon>
+                          </button>
+                        } @else { <span class="tree-leaf"></span> }
+                        <ng-container [ngTemplateOutlet]="cell" [ngTemplateOutletContext]="{ row: node.row, column }" />
+                      </span>
+                    } @else { <ng-container [ngTemplateOutlet]="cell" [ngTemplateOutletContext]="{ row: node.row, column }" /> }
+                  </td>
+                }
+              </tr>
+            }
+          } @else {
+            @for (section of sections(); track $index) {
+              @if (section.label !== null) {
+                <tr class="dt-group-row"><td [attr.colspan]="columnCount()"><strong>{{ section.label }}</strong><span class="muted">{{ section.rows.length }} row{{ section.rows.length === 1 ? '' : 's' }}</span></td></tr>
+              }
+              @for (row of section.rows; track key(row, $index); let i = $index) {
+                @let spans = section.spans.get(i) ?? {};
+                <tr (click)="click(row, section.offset + i)" [class.selected]="isSelected(row, section.offset + i)" [class.clickable]="live() && !!block().on?.click">
+                  @if (cfg.selection !== 'none') { <td class="dt-check"><mat-checkbox [checked]="isSelected(row, section.offset + i)" (click)="$event.stopPropagation()" (change)="toggle(row, section.offset + i)" [disabled]="!live()" aria-label="Select row" /></td> }
+                  @for (column of visibleColumns(); track column.key) {
+                    @if (spans[column.key] !== 0) {
+                      <td [class]="'align-' + (column.align ?? 'start')" [class.merged]="(spans[column.key] ?? 1) > 1" [attr.rowspan]="(spans[column.key] ?? 1) > 1 ? spans[column.key] : null"><ng-container [ngTemplateOutlet]="cell" [ngTemplateOutletContext]="{ row, column }" /></td>
+                    }
+                  }
+                </tr>
+              }
+            }
+          }
+        </tbody>
+      </table>
+      @if (!(isTree() ? treeRows().length : rows().length) && !loading()) {
+        <div class="dt-empty"><mat-icon>inbox</mat-icon>{{ state().search ? 'No rows match your search.' : (block().emptyText || 'No rows yet.') }}</div>
+      }
+    </div>
+  }
+
+  @if (!isTree()) {
+    @switch (cfg.pagination) {
+      @case ('pages') {
+        <div class="dt-footer">
+          <span class="muted">{{ rangeLabel() }}</span>
+          <span class="toolbar-spacer"></span>
+          <mat-form-field appearance="outline" class="dt-size" subscriptSizing="dynamic"><mat-select [value]="state().pageSize" (selectionChange)="setPageSize($event.value)" aria-label="Rows per page" [disabled]="!live()">@for (size of pageSizes; track size) { <mat-option [value]="size">{{ size }} / page</mat-option> }</mat-select></mat-form-field>
+          <button mat-icon-button aria-label="Previous page" [disabled]="state().page <= 1 || !live()" (click)="goTo(state().page - 1)"><mat-icon>chevron_left</mat-icon></button>
+          <span class="dt-page">{{ state().page }} / {{ pages() }}</span>
+          <button mat-icon-button aria-label="Next page" [disabled]="state().page >= pages() || !live()" (click)="goTo(state().page + 1)"><mat-icon>chevron_right</mat-icon></button>
+        </div>
+      }
+      @case ('loadMore') {
+        @if (hasMore()) { <div class="dt-footer center"><button mat-stroked-button [disabled]="loading() || !live()" (click)="goTo(state().page + 1)"><mat-icon>expand_more</mat-icon>Load more</button><span class="muted">{{ rows().length }} of {{ total() }}</span></div> }
+      }
+      @case ('infinite') {
+        @if (hasMore()) { <div #sentinel class="dt-footer center muted">{{ loading() ? 'Loading more…' : 'Scroll for more' }}</div> }
+      }
+    }
+  }
+</div>
+
+<ng-template #cell let-row="row" let-column="column">
+  @switch (column.format) {
+    @case ('badge') { @if (text(row, column)) { <span class="badge">{{ text(row, column) }}</span> } }
+    @case ('link') { @if (link(row, column)) { <a [href]="link(row, column)" (click)="$event.stopPropagation()">{{ text(row, column) }}</a> } @else { {{ text(row, column) }} } }
+    @case ('image') { @if (image(row, column)) { <img class="dt-img" [src]="image(row, column)" alt="" loading="lazy"> } }
+    @case ('boolean') { <mat-icon class="dt-bool" [class.yes]="text(row, column) === 'Yes'" [attr.aria-label]="text(row, column)">{{ text(row, column) === 'Yes' ? 'check_circle' : 'remove' }}</mat-icon> }
+    @case ('progress') { <span class="dt-progress"><span [style.width.%]="percent(row, column)"></span></span><span class="muted">{{ percent(row, column) }}%</span> }
+    @default { {{ text(row, column) }} }
+  }
+</ng-template>

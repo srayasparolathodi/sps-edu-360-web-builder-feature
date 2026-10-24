@@ -13,26 +13,65 @@
             "browser": "src/main.ts",
             "index": "src/index.html",
             "tsConfig": "tsconfig.app.json",
-            "styles": ["src/styles.scss"],
-            "assets": [{ "glob": "**/*", "input": "public", "output": "/" }],
+            "styles": [
+              "node_modules/@foblex/flow/styles/default.scss",
+              "src/styles.scss",
+              "src/app-styles.scss"
+            ],
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "public",
+                "output": "/"
+              }
+            ],
             "outputPath": "dist"
           },
           "configurations": {
-            "production": { "outputHashing": "all" },
-            "development": { "optimization": false, "sourceMap": true }
+            "production": {
+              "outputHashing": "all",
+              "budgets": [
+                {
+                  "type": "initial",
+                  "maximumWarning": "1.2mb",
+                  "maximumError": "2mb"
+                },
+                {
+                  "type": "anyComponentStyle",
+                  "maximumWarning": "8kb",
+                  "maximumError": "16kb"
+                }
+              ]
+            },
+            "development": {
+              "optimization": false,
+              "sourceMap": true
+            }
           },
           "defaultConfiguration": "production"
         },
         "serve": {
           "builder": "@angular/build:dev-server",
           "configurations": {
-            "development": { "buildTarget": "web-builder:build:development" },
-            "production": { "buildTarget": "web-builder:build:production" }
+            "development": {
+              "buildTarget": "web-builder:build:development"
+            },
+            "production": {
+              "buildTarget": "web-builder:build:production"
+            }
           },
-          "defaultConfiguration": "development"
+          "defaultConfiguration": "development",
+          "options": {
+            "proxyConfig": "proxy.conf.json",
+            "prebundle": {
+              "exclude": ["@spsedu360/engine"]
+            }
+          }
         }
       }
     }
   },
-  "cli": { "analytics": false }
+  "cli": {
+    "analytics": false
+  }
 }

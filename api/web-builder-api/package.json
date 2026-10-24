@@ -1,0 +1,29 @@
+{
+  "name": "@spsedu360/web-builder-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Page Studio backend: the Cloudflare Worker behind /api (see wrangler.jsonc at the repository root).",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "lint": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@spsedu360/engine": "workspace:*",
+    "@neondatabase/serverless": "^1.2.0",
+    "@upstash/qstash": "^2.12.1",
+    "@upstash/redis": "^1.39.0",
+    "aws4fetch": "^1.0.20",
+    "better-auth": "^1.7.12",
+    "jose": "^6.2.13",
+    "mysql2": "^3.24.6",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261022.1",
+    "@types/node": "^24.10.0",
+    "@types/pg": "^8.23.1",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.5"
+  }
+}

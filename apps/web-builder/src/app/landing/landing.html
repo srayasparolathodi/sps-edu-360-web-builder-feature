@@ -1,0 +1,121 @@
+<header class="landing-header">
+  <span class="brand-mark"><mat-icon>dashboard_customize</mat-icon></span>
+  <span class="brand-name">Page Studio</span>
+  <span class="brand-tag">SPS EDU 360</span>
+  <span class="toolbar-spacer"></span>
+  @switch (api.mode()) {
+    @case ('checking') { <span class="save-state"><mat-spinner diameter="14" />Checking storage…</span> }
+    @case ('cloud') {
+      <span class="save-state status-live"><span class="dot"></span>Cloud · {{ api.database() === 'neon' ? 'Neon Postgres' : 'Workers KV' }}</span>
+      @if (api.user(); as me) {
+        <span class="user-chip" [matTooltip]="me.via === 'access' ? 'Signed in with Cloudflare Access' : 'Signed in with the admin token'"><span class="monogram small">{{ (me.email || '?')[0].toUpperCase() }}</span><span class="user-text"><strong>{{ me.email }}</strong><span>{{ me.role === 'admin' ? 'Admin' : 'Author' }}</span></span></span>
+        @if (me.role === 'admin') { <button mat-stroked-button (click)="openPeople()"><mat-icon>group</mat-icon>People</button> }
+      }
+      @if (api.builderAuth() !== 'access') { <button mat-button (click)="disconnect()"><mat-icon>logout</mat-icon>Disconnect</button> }
+    }
+    @default { <span class="save-state" [matTooltip]="api.cloudIssue()"><mat-icon>laptop</mat-icon>This device only</span> }
+  }
+</header>
+
+<main class="landing">
+  <section class="landing-hero">
+    <p class="eyebrow">No-code builder for school websites and apps</p>
+    <h1>Build your school's portal, <span class="highlight">no code</span> needed.</h1>
+    <p class="lede">Lay out pages with blocks, connect live data with visual logic, and publish. Retries, error messages and loading states are set up with clicks, not code.</p>
+  </section>
+
+  @if (api.mode() === 'local') {
+    <section class="connect-card" aria-label="Cloud storage">
+      <span class="connect-icon"><mat-icon>cloud_off</mat-icon></span>
+      <div class="connect-text">
+        <strong>Projects are saved on this device only</strong>
+        <span>{{ api.cloudIssue() }} Connect to save online, work across devices and publish live sites.</span>
+      </div>
+      @if (api.adminConfigured() && api.builderAuth() !== 'access') {
+        <mat-form-field appearance="outline" class="token-field"><mat-label>Admin token</mat-label><input matInput type="password" autocomplete="current-password" [ngModel]="token()" (ngModelChange)="token.set($event)" (keydown.enter)="connect()"></mat-form-field>
+        <button mat-flat-button [disabled]="!token() || connecting()" (click)="connect()"><mat-icon>login</mat-icon>Connect</button>
+      }
+    </section>
+  }
+
+  <section aria-labelledby="new-heading">
+    <div class="section-head">
+      <h2 id="new-heading">Start something new</h2>
+      <span class="toolbar-spacer"></span>
+      <mat-form-field appearance="outline" class="name-field"><mat-label>App name</mat-label><mat-hint>Becomes its web address, so it must be unique</mat-hint><input matInput placeholder="e.g. Greenfield School" [ngModel]="newName()" (ngModelChange)="newName.set($event)"></mat-form-field>
+    </div>
+    @if (atLimit()) {
+      <div class="state-card state-empty" role="status"><mat-icon>info</mat-icon><div><strong>You already have your app</strong><span>Authors build one app. Add as many pages, journeys and versions to it as you need, or ask an admin if you need another app.</span></div></div>
+    }
+    <div class="template-grid">
+      @for (template of templates; track template.id) {
+        <button class="template-card" type="button" [disabled]="!!creating() || atLimit()" (click)="create(template)">
+          <span class="sketch" [class]="'sketch sketch-' + template.id" aria-hidden="true">
+            <span class="s-bar"></span><span class="s-hero"></span>
+            <span class="s-row"><span></span><span></span><span></span></span>
+          </span>
+          <span class="template-text">
+            <strong>{{ template.name }}</strong>
+            <span>{{ template.description }}</span>
+          </span>
+          @if (creating() === template.id) { <mat-spinner diameter="20" class="template-spinner" /> }
+        </button>
+      }
+    </div>
+  </section>
+
+  <section aria-labelledby="projects-heading">
+    <div class="section-head">
+      <h2 id="projects-heading">Your projects</h2>
+      <span class="toolbar-spacer"></span>
+      <mat-form-field appearance="outline" class="name-field"><mat-label>Search projects</mat-label><mat-icon matPrefix>search</mat-icon><input matInput [ngModel]="search()" (ngModelChange)="search.set($event)"></mat-form-field>
+      <button mat-stroked-button [disabled]="atLimit()" (click)="importInput.click()"><mat-icon>upload</mat-icon>Import</button>
+      <input #importInput type="file" accept="application/json,.json" class="visually-hidden" (change)="import($event)">
+    </div>
+    @if (projects() === null) {
+      <div class="project-grid" aria-busy="true" aria-label="Loading projects">
+        @for (n of [1, 2, 3]; track n) {
+          <div class="project-card"><div class="project-top"><div class="skeleton monogram"></div><div class="project-meta"><div class="skeleton skeleton-line" style="width: 70%"></div><div class="skeleton skeleton-line" style="width: 45%"></div></div></div></div>
+        }
+      </div>
+    } @else if (error()) {
+      <div class="state-card state-error" role="alert"><mat-icon>cloud_off</mat-icon><div><strong>Couldn't load projects</strong><span>{{ error() }}</span></div><button mat-stroked-button (click)="refresh()"><mat-icon>refresh</mat-icon>Retry</button></div>
+    } @else {
+      <div class="project-grid">
+        @for (project of filtered(); track project.id) {
+          <article class="project-card">
+            <a class="project-top" [routerLink]="['/builder', project.id]">
+              <span class="monogram" [style.--hue]="hue(project.name)">{{ initials(project.name) }}</span>
+              <span class="project-meta">
+                <strong>{{ project.name }}</strong>
+                <span>{{ project.pages }} page{{ project.pages === 1 ? '' : 's' }} · {{ project.flows }} journey{{ project.flows === 1 ? '' : 's' }} · edited {{ project.updatedAt | date: 'MMM d, h:mm a' }}</span>
+                @if (isAdmin()) { <span class="owner-line"><mat-icon>person</mat-icon>{{ ownerEmail(project.ownerId) }}</span> }
+              </span>
+            </a>
+            <div class="project-actions">
+              @if (project.publishedAt) { <a class="status-pill status-live" [routerLink]="project.slug ? ['/', project.slug] : ['/site', project.id]" target="_blank" [attr.title]="project.slug ? '/' + project.slug : null"><span class="dot"></span>Live</a> }
+              @else { <span class="status-pill">Draft</span> }
+              <span class="toolbar-spacer"></span>
+              <button mat-icon-button [matMenuTriggerFor]="more" [attr.aria-label]="'More for ' + project.name"><mat-icon>more_horiz</mat-icon></button>
+              <a mat-flat-button [routerLink]="['/builder', project.id]">Open</a>
+              <mat-menu #more="matMenu">
+                <button mat-menu-item [disabled]="atLimit()" (click)="duplicate(project)"><mat-icon>content_copy</mat-icon>Duplicate</button>
+                @if (isAdmin() && people().length) { <button mat-menu-item [matMenuTriggerFor]="owners" [matMenuTriggerData]="{ project }"><mat-icon>manage_accounts</mat-icon>Change owner</button> }
+                <button mat-menu-item (click)="remove(project)"><mat-icon>delete</mat-icon>Delete</button>
+              </mat-menu>
+            </div>
+          </article>
+        } @empty {
+          <div class="state-card state-empty" role="status"><mat-icon>folder_open</mat-icon><span>{{ search() ? 'No projects match your search.' : 'No projects yet. Pick a template above to start.' }}</span></div>
+        }
+      </div>
+    }
+  </section>
+</main>
+<mat-menu #owners="matMenu">
+  <ng-template matMenuContent let-project="project">
+    @for (person of people(); track person.id) {
+      <button mat-menu-item [disabled]="person.id === project.ownerId" (click)="setOwner(project, person)"><mat-icon>{{ person.role === 'admin' ? 'shield_person' : 'person' }}</mat-icon>{{ person.email }}</button>
+    }
+  </ng-template>
+</mat-menu>

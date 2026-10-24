@@ -1,0 +1,28 @@
+<section class="logic-field" [class.is-set]="isSet()">
+  <header class="logic-field-head">
+    <button mat-button class="logic-field-toggle" [attr.aria-expanded]="isOpen()" (click)="toggle()">
+      <mat-icon>{{ isOpen() ? 'expand_less' : 'expand_more' }}</mat-icon>
+      <span class="logic-field-label">{{ label() }}</span>
+    </button>
+    @if (isSet() && optional()) { <button mat-icon-button matTooltip="Remove logic" [attr.aria-label]="'Remove logic for ' + label()" (click)="clear()"><mat-icon>backspace</mat-icon></button> }
+  </header>
+  @if (hint()) { <p class="logic-hint">{{ hint() }}</p> }
+  <p class="logic-summary" [class.unset]="!isSet()"><mat-icon>auto_fix_high</mat-icon>{{ summary() }}</p>
+  @if (result(); as result) {
+    <p class="logic-result" [class.failed]="!result.ok"><mat-icon>{{ result.ok ? 'play_arrow' : 'error_outline' }}</mat-icon>{{ result.ok ? 'Result now: ' : '' }}{{ result.text }}</p>
+  }
+  @if (problems().length) { <p class="logic-result failed"><mat-icon>error_outline</mat-icon>{{ problems()[0] }}</p> }
+  @if (isOpen()) {
+    <mat-button-toggle-group hideSingleSelectionIndicator class="logic-mode" [value]="mode()" aria-label="Editor mode" (change)="$event.value === 'json' ? showJson() : mode.set('visual')">
+      <mat-button-toggle value="visual"><mat-icon>widgets</mat-icon>Visual</mat-button-toggle>
+      <mat-button-toggle value="json"><mat-icon>data_object</mat-icon>JSON</mat-button-toggle>
+    </mat-button-toggle-group>
+    @if (mode() === 'visual') {
+      <logic-node [value]="value() ?? null" [variables]="variables()" (valueChange)="valueChange.emit($event)" />
+    } @else {
+      <textarea class="logic-json" rows="8" spellcheck="false" aria-label="JSON Logic" [ngModel]="jsonDraft()" (ngModelChange)="jsonDraft.set($event)" (blur)="applyJson()"></textarea>
+      @if (jsonError()) { <p class="logic-result failed"><mat-icon>error_outline</mat-icon>{{ jsonError() }}</p> }
+      <button mat-stroked-button (click)="applyJson()"><mat-icon>check</mat-icon>Apply JSON</button>
+    }
+  }
+</section>

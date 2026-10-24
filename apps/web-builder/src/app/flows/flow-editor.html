@@ -1,0 +1,238 @@
+@if (flow(); as flow) {
+  <header class="flow-header">
+    <mat-icon class="brand-icon">account_tree</mat-icon>
+    <input class="project-name" aria-label="Flow name" [ngModel]="flow.name" (ngModelChange)="setFlow('name', $event)">
+    <mat-button-toggle-group hideSingleSelectionIndicator aria-label="Where it runs" [value]="flow.runAt" (change)="setFlow('runAt', $event.value)">
+      <mat-button-toggle value="client" matTooltip="Runs in the visitor's browser: can update the page, navigate and show messages"><mat-icon>web</mat-icon>Browser</mat-button-toggle>
+      <mat-button-toggle value="server" matTooltip="Runs on the server: hides API keys (secrets.NAME) and avoids browser limits"><mat-icon>dns</mat-icon>Server</mat-button-toggle>
+    </mat-button-toggle-group>
+    <mat-button-toggle-group hideSingleSelectionIndicator aria-label="Order" [value]="flow.mode" (change)="setFlow('mode', $event.value)">
+      <mat-button-toggle value="parallel" matTooltip="Steps run as soon as the steps they wait for are done"><mat-icon>call_split</mat-icon>Parallel</mat-button-toggle>
+      <mat-button-toggle value="sequential" matTooltip="Steps run one after another, top to bottom"><mat-icon>format_list_numbered</mat-icon>One by one</mat-button-toggle>
+    </mat-button-toggle-group>
+    <span class="toolbar-spacer"></span>
+    @if (problems().length) { <span class="flow-status bad" [matTooltip]="problems().join('\n')"><mat-icon>error</mat-icon>{{ problems().length }} to fix</span> }
+    @else { <span class="flow-status good"><mat-icon>check_circle</mat-icon>Ready</span> }
+    <button mat-flat-button (click)="test()" [disabled]="testing() || !!problems().length"><mat-icon>play_arrow</mat-icon>Test run</button>
+    <button mat-icon-button aria-label="Close flow editor" (click)="close()"><mat-icon>close</mat-icon></button>
+  </header>
+
+  <div class="flow-body">
+    <aside class="flow-steps" aria-label="Steps">
+      <div class="panel-content">
+        <button mat-flat-button class="full-width" [matMenuTriggerFor]="addMenu"><mat-icon>add</mat-icon>Add step</button>
+        <mat-menu #addMenu="matMenu">
+          @for (type of stepTypes; track type.type) {
+            @if (type.sides.includes(flow.runAt)) { <button mat-menu-item (click)="addStep(type.type)"><mat-icon>{{ type.icon }}</mat-icon><span>{{ type.label }}</span></button> }
+          }
+        </mat-menu>
+        <ol class="step-list">
+          @for (step of flow.steps; track step.id; let i = $index) {
+            <li><button mat-button [class.active-layer]="selectedId() === step.id" (click)="selectedId.set(step.id)">
+              <mat-icon>{{ typeInfo(step.type)?.icon }}</mat-icon><span>{{ i + 1 }}. {{ step.name }}</span>
+              @if (stepStatus(step.id); as status) { <mat-icon class="step-state" [class]="'state-' + status.status">{{ status.status === 'success' ? 'check_circle' : status.status === 'error' ? 'error' : status.status === 'empty' ? 'inbox' : status.status === 'skipped' ? 'skip_next' : 'pending' }}</mat-icon> }
+            </button></li>
+          } @empty { <p class="muted">No steps yet. Add one to start.</p> }
+        </ol>
+
+        <h3 class="panel-title">When it runs</h3>
+        <mat-form-field appearance="outline" class="full-width"><mat-label>Trigger</mat-label>
+          <mat-select [value]="flow.trigger" (selectionChange)="setFlow('trigger', $event.value)">
+            <mat-option value="manual">When a block event runs it</mat-option>
+            <mat-option value="pageLoad">When a page opens</mat-option>
+            <mat-option value="interval">Repeatedly while a page is open</mat-option>
+            <mat-option value="schedule" [disabled]="flow.runAt !== 'server'">On a schedule (server flows)</mat-option>
+          </mat-select>
+        </mat-form-field>
+        @if (flow.trigger === 'schedule') {
+          <mat-form-field appearance="outline" class="full-width"><mat-label>Common schedules</mat-label>
+            <mat-select [value]="flow.schedule" (selectionChange)="setFlow('schedule', $event.value)">@for (preset of schedulePresets; track preset.cron) { <mat-option [value]="preset.cron">{{ preset.label }}</mat-option> }</mat-select>
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="full-width"><mat-label>Schedule (cron, UTC)</mat-label><input matInput [ngModel]="flow.schedule" (ngModelChange)="setFlow('schedule', $event)"><mat-hint>minute hour day month weekday. Starts after you publish (needs QStash).</mat-hint></mat-form-field>
+        }
+        @if (flow.trigger === 'pageLoad' || flow.trigger === 'interval') {
+          <mat-form-field appearance="outline" class="full-width"><mat-label>On pages (empty = all)</mat-label>
+            <mat-select multiple [value]="flow.pageIds" (selectionChange)="pageChoice($event.value)">@for (page of store.project().pages; track page.id) { <mat-option [value]="page.id">{{ page.name }}</mat-option> }</mat-select>
+          </mat-form-field>
+        }
+        @if (flow.trigger === 'interval') {
+          <mat-form-field appearance="outline" class="full-width"><mat-label>Repeat every (seconds)</mat-label><input matInput type="number" min="5" [ngModel]="flow.intervalSeconds" (ngModelChange)="setFlow('intervalSeconds', $event)"></mat-form-field>
+        }
+        <mat-form-field appearance="outline" class="full-width"><mat-label>After success, run</mat-label>
+          <mat-select [value]="flow.onSuccess ?? ''" (selectionChange)="setFlow('onSuccess', $event.value || undefined)"><mat-option value="">Nothing</mat-option>@for (other of otherFlows(); track other.id) { <mat-option [value]="other.id">{{ other.name }}</mat-option> }</mat-select>
+        </mat-form-field>
+        <mat-form-field appearance="outline" class="full-width"><mat-label>After failure, run</mat-label>
+          <mat-select [value]="flow.onFailure ?? ''" (selectionChange)="setFlow('onFailure', $event.value || undefined)"><mat-option value="">Nothing</mat-option>@for (other of otherFlows(); track other.id) { <mat-option [value]="other.id">{{ other.name }}</mat-option> }</mat-select>
+        </mat-form-field>
+        @if (store.project().auth?.enabled) {
+          <mat-form-field appearance="outline" class="full-width"><mat-label>Who can run this flow</mat-label>
+            <mat-select multiple [value]="accessChoice(flow.access)" (selectionChange)="setAccess($event.value)">
+              <mat-option value="public">Everyone</mat-option><mat-option value="signedIn">Anyone signed in</mat-option>
+              @for (role of store.project().auth!.roles; track role.id) { <mat-option [value]="role.id">{{ role.name }}</mat-option> }
+            </mat-select>
+            <mat-hint>Server flows check this on the server.</mat-hint>
+          </mat-form-field>
+        }
+        <logic-field label="Flow result" hint="What the flow returns to blocks. Empty = the last step's output." [value]="flow.result" [variables]="variables()" [sample]="sample()" (valueChange)="setFlow('result', $event)" />
+        <logic-field label="No data when" hint="Shows the 'no data' message instead of the blocks. Use 'result'." [value]="flow.emptyWhen" [variables]="variables()" [sample]="sample()" (valueChange)="setFlow('emptyWhen', $event)" />
+        <mat-form-field appearance="outline" class="full-width"><mat-label>No data message</mat-label><input matInput [ngModel]="flow.emptyMessage" (ngModelChange)="setFlow('emptyMessage', $event)"></mat-form-field>
+      </div>
+    </aside>
+
+    <main class="flow-canvas" aria-label="Flow diagram">
+      <div class="flow-canvas-tools">
+        <button mat-stroked-button (click)="fit()"><mat-icon>fit_screen</mat-icon>Fit</button>
+        @if (selectedConnection()) { <button mat-stroked-button (click)="removeConnection()"><mat-icon>link_off</mat-icon>Remove link</button> }
+        <span class="muted">Drag from a step's right dot to another step's left dot to make it wait.</span>
+      </div>
+      <f-flow fDraggable (fCreateConnection)="connect($event)" (fSelectionChange)="selection($event)" (fFullRendered)="fit()">
+        <f-background><f-circle-pattern /></f-background>
+        <f-canvas fZoom>
+          <f-connection-for-create fType="bezier" />
+          <ng-container ngProjectAs="[fConnections]">
+            @for (c of connections(); track c.id) {
+              <f-connection [fConnectionId]="c.id" [fSourceId]="c.source" [fTargetId]="c.target" fType="bezier" [class.implicit]="c.implicit" />
+            }
+          </ng-container>
+          <ng-container ngProjectAs="[fNodes]">
+            @for (step of flow.steps; track step.id) {
+              <div fNode fDragHandle [fNodeId]="'node-' + step.id" [fNodePosition]="positions()[step.id]" (fNodePositionChange)="moved(step.id, $event)"
+                   class="flow-node" [class.selected-node]="selectedId() === step.id" [class]="'flow-node type-' + step.type + ' status-' + (stepStatus(step.id)?.status ?? 'none')" (click)="selectedId.set(step.id)">
+                <div fConnector fConnectorType="target" [fConnectorId]="'in-' + step.id" [fConnectorMultiple]="true" class="flow-connector in"></div>
+                <mat-icon>{{ typeInfo(step.type)?.icon }}</mat-icon>
+                <div class="flow-node-text"><strong>{{ step.name }}</strong><span>{{ typeInfo(step.type)?.label }}</span>
+                  @if (stepStatus(step.id); as status) { <span class="flow-node-state">{{ status.status }}{{ status.attempts > 1 ? ' · ' + status.attempts + ' tries' : '' }} · {{ status.durationMs }}ms</span> }
+                  <span class="flow-node-badges">
+                    @if (step.retry.attempts > 1) { <mat-icon matTooltip="Retries">replay</mat-icon> }
+                    @if (step.breaker.enabled) { <mat-icon matTooltip="Circuit breaker">electrical_services</mat-icon> }
+                    @if (step.timeoutMs) { <mat-icon matTooltip="Timeout">timer</mat-icon> }
+                    @if (step.when !== undefined) { <mat-icon matTooltip="Runs only when a condition is true">rule</mat-icon> }
+                  </span>
+                </div>
+                <div fConnector fConnectorType="source" [fConnectorId]="'out-' + step.id" [fConnectorMultiple]="true" class="flow-connector out"></div>
+              </div>
+            }
+          </ng-container>
+        </f-canvas>
+      </f-flow>
+    </main>
+
+    <aside class="flow-inspector" aria-label="Step settings">
+      @if (step(); as step) {
+        <div class="inspector-heading"><h2>{{ typeInfo(step.type)?.label }}</h2>
+          <button mat-icon-button matTooltip="Move up" aria-label="Move step up" (click)="moveStep(-1)"><mat-icon>arrow_upward</mat-icon></button>
+          <button mat-icon-button matTooltip="Move down" aria-label="Move step down" (click)="moveStep(1)"><mat-icon>arrow_downward</mat-icon></button>
+          <button mat-icon-button matTooltip="Duplicate" aria-label="Duplicate step" (click)="duplicateStep()"><mat-icon>content_copy</mat-icon></button>
+          <button mat-icon-button matTooltip="Delete" aria-label="Delete step" (click)="removeStep()"><mat-icon>delete_outline</mat-icon></button>
+        </div>
+        <div class="panel-content property-fields">
+          <p class="muted">{{ typeInfo(step.type)?.description }} Its result is <code>steps.{{ step.id.slice(0, 8) }}…</code> for later steps.</p>
+          <mat-form-field appearance="outline"><mat-label>Step name</mat-label><input matInput [ngModel]="step.name" (ngModelChange)="setStep('name', $event)"></mat-form-field>
+
+          @switch (step.type) {
+            @case ('compute') { <logic-field label="Calculation" [startOpen]="true" [optional]="false" [value]="step.logic" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('logic', $event)" /> }
+            @case ('http') {
+              <mat-form-field appearance="outline"><mat-label>Method</mat-label><mat-select [value]="step.method" (selectionChange)="setStep('method', $event.value)">@for (m of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']; track m) { <mat-option [value]="m">{{ m }}</mat-option> }</mat-select></mat-form-field>
+              <logic-field label="Address (URL)" hint="Fixed text, or build it from variables, e.g. join text: https://api.example.com/students/ + params.studentId" [startOpen]="true" [optional]="false" [value]="step.url" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('url', $event)" />
+              <logic-field label="Headers" hint="Data with one field per header, e.g. Authorization. On the server use secrets.NAME for keys." [value]="step.headers" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('headers', $event)" />
+              @if (step.method !== 'GET') { <logic-field label="Body" hint="Data sent to the API (sent as JSON)." [value]="step.body" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('body', $event)" /> }
+              <logic-field label="No data when" hint="Use 'response'. Empty = an empty list or nothing counts as no data." [value]="step.emptyWhen" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('emptyWhen', $event)" />
+            }
+            @case ('setVariable') {
+              <mat-form-field appearance="outline"><mat-label>Keep it</mat-label><mat-select [value]="step.scope" (selectionChange)="setStep('scope', $event.value)"><mat-option value="vars">For this visit (page variable)</mat-option><mat-option value="session">Until the tab closes (session)</mat-option><mat-option value="local">On this device (local storage)</mat-option></mat-select></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Variable name</mat-label><input matInput [ngModel]="step.variable" (ngModelChange)="setStep('variable', $event)"></mat-form-field>
+              <logic-field label="Value" [startOpen]="true" [optional]="false" [value]="step.value" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('value', $event)" />
+            }
+            @case ('notify') {
+              <mat-form-field appearance="outline"><mat-label>Type</mat-label><mat-select [value]="step.level" (selectionChange)="setStep('level', $event.value)">@for (l of ['info', 'success', 'warning', 'error']; track l) { <mat-option [value]="l">{{ l }}</mat-option> }</mat-select></mat-form-field>
+              <logic-field label="Message" [startOpen]="true" [optional]="false" [value]="step.message" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('message', $event)" />
+            }
+            @case ('navigate') { <logic-field label="Go to" hint="A page path like /students/42, or a full https:// address." [startOpen]="true" [optional]="false" [value]="step.to" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('to', $event)" /> }
+            @case ('delay') { <mat-form-field appearance="outline"><mat-label>Wait (milliseconds)</mat-label><input matInput type="number" min="0" max="60000" [ngModel]="step.ms" (ngModelChange)="setStep('ms', $event)"></mat-form-field> }
+            @case ('query') {
+              <mat-form-field appearance="outline"><mat-label>Data source</mat-label>
+                <mat-select [value]="step.dataSource" (selectionChange)="setStep('dataSource', $event.value)">@for (source of dataSources(); track source.id) { <mat-option [value]="source.id">{{ source.name }} ({{ source.type === 'mysql' ? 'MySQL' : 'PostgreSQL' }})</mat-option> }</mat-select>
+                @if (!dataSources().length) { <mat-hint>Add a data source on the Data tab first.</mat-hint> }
+              </mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Result</mat-label>
+                <mat-select [value]="step.queryResult ?? 'rows'" (selectionChange)="setStep('queryResult', $event.value)">
+                  <mat-option value="rows">All rows (list)</mat-option><mat-option value="first">First row</mat-option><mat-option value="value">A single value</mat-option><mat-option value="count">Number of rows</mat-option>
+                </mat-select>
+              </mat-form-field>
+              <query-builder [query]="step.query!" [source]="stepSource()" [variables]="variables()" [sample]="sample()" (queryChange)="setQuery($event)" />
+            }
+            @case ('serverFlow') {
+              <mat-form-field appearance="outline"><mat-label>Server flow</mat-label><mat-select [value]="step.flowId" (selectionChange)="setStep('flowId', $event.value)">@for (other of serverFlows(); track other.id) { <mat-option [value]="other.id">{{ other.name }}</mat-option> }</mat-select>@if (!serverFlows().length) { <mat-hint>Create a flow set to "Server" first.</mat-hint> }</mat-form-field>
+              <logic-field label="Input" hint="Data the server flow receives as 'input'." [value]="step.input" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('input', $event)" />
+              <mat-slide-toggle [checked]="!!step.background" (change)="setStep('background', $event.checked || undefined)">Run in the background (queued, don't wait)</mat-slide-toggle>
+              @if (step.background) { <p class="muted">Queued with QStash and retried on failure. The visitor continues immediately; the step's result is a message id.</p> }
+            }
+          }
+
+          @if (flow.mode === 'parallel' && flow.steps.length > 1) {
+            <h3 class="panel-title">Waits for</h3>
+            @for (other of flow.steps; track other.id) {
+              @if (other.id !== step.id) { <mat-slide-toggle [checked]="isDependency(other.id)" (change)="toggleDependency(other.id, $event.checked)">{{ other.name }}</mat-slide-toggle> }
+            }
+          }
+          <logic-field label="Only run when" hint="Skip this step unless the condition is true." [value]="step.when" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('when', $event)" />
+          <mat-slide-toggle [checked]="!!step.saveAs" (change)="setSaveAs($event.checked)">Also save the result in a variable</mat-slide-toggle>
+          @if (step.saveAs; as saveAs) {
+            <div class="inline-fields">
+              <mat-form-field appearance="outline"><mat-label>Keep it</mat-label><mat-select [value]="saveAs.scope" (selectionChange)="setSaveAsField('scope', $event.value)"><mat-option value="vars">This visit</mat-option><mat-option value="session">Session</mat-option><mat-option value="local">This device</mat-option></mat-select></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Name</mat-label><input matInput [ngModel]="saveAs.name" (ngModelChange)="setSaveAsField('name', $event)"></mat-form-field>
+            </div>
+          }
+
+          <mat-accordion multi>
+            <mat-expansion-panel>
+              <mat-expansion-panel-header><mat-panel-title><mat-icon>shield</mat-icon>&nbsp;When something goes wrong</mat-panel-title></mat-expansion-panel-header>
+              <div class="property-fields">
+                <mat-form-field appearance="outline"><mat-label>Give up after (seconds, 0 = never)</mat-label><input matInput type="number" min="0" [ngModel]="step.timeoutMs / 1000" (ngModelChange)="setStep('timeoutMs', ($event || 0) * 1000)"></mat-form-field>
+                <mat-form-field appearance="outline"><mat-label>Tries in total</mat-label><input matInput type="number" min="1" max="10" [ngModel]="step.retry.attempts" (ngModelChange)="setPolicy('retry', 'attempts', $event)"><mat-hint>Network errors, timeouts, 429 and 5xx are retried; 4xx are not.</mat-hint></mat-form-field>
+                @if (step.retry.attempts > 1) {
+                  <div class="inline-fields">
+                    <mat-form-field appearance="outline"><mat-label>Wait (ms)</mat-label><input matInput type="number" min="0" [ngModel]="step.retry.delayMs" (ngModelChange)="setPolicy('retry', 'delayMs', $event)"></mat-form-field>
+                    <mat-form-field appearance="outline"><mat-label>Backoff</mat-label><mat-select [value]="step.retry.backoff" (selectionChange)="setPolicy('retry', 'backoff', $event.value)"><mat-option value="exponential">Longer each time</mat-option><mat-option value="fixed">Same each time</mat-option></mat-select></mat-form-field>
+                  </div>
+                }
+                <mat-slide-toggle [checked]="step.breaker.enabled" (change)="setPolicy('breaker', 'enabled', $event.checked)">Circuit breaker: pause after repeated failures</mat-slide-toggle>
+                @if (step.breaker.enabled) {
+                  <div class="inline-fields">
+                    <mat-form-field appearance="outline"><mat-label>Failures before pausing</mat-label><input matInput type="number" min="1" [ngModel]="step.breaker.failureThreshold" (ngModelChange)="setPolicy('breaker', 'failureThreshold', $event)"></mat-form-field>
+                    <mat-form-field appearance="outline"><mat-label>Pause (seconds)</mat-label><input matInput type="number" min="1" [ngModel]="step.breaker.cooldownMs / 1000" (ngModelChange)="setPolicy('breaker', 'cooldownMs', ($event || 1) * 1000)"></mat-form-field>
+                  </div>
+                }
+                <mat-form-field appearance="outline"><mat-label>If it still fails</mat-label>
+                  <mat-select [value]="step.onError.action" (selectionChange)="setPolicy('onError', 'action', $event.value)">
+                    <mat-option value="stop">Stop the flow (show error state)</mat-option>
+                    <mat-option value="continue">Continue without this step</mat-option>
+                    <mat-option value="fallback">Use a fallback value</mat-option>
+                  </mat-select>
+                </mat-form-field>
+                @if (step.onError.action === 'fallback') { <logic-field label="Fallback value" hint="Use error.message or error.status if helpful." [startOpen]="true" [value]="step.onError.fallback" [variables]="variables()" [sample]="sample()" (valueChange)="setPolicy('onError', 'fallback', $event ?? null)" /> }
+                <mat-slide-toggle [checked]="step.onError.notify" (change)="setPolicy('onError', 'notify', $event.checked)">Show a notification</mat-slide-toggle>
+                @if (step.onError.notify) { <mat-form-field appearance="outline"><mat-label>Notification text ({{ '{' }}error{{ '}' }} = reason)</mat-label><input matInput [ngModel]="step.onError.message" (ngModelChange)="setPolicy('onError', 'message', $event)"></mat-form-field> }
+              </div>
+            </mat-expansion-panel>
+          </mat-accordion>
+        </div>
+      } @else {
+        <div class="inspector-empty"><mat-icon>touch_app</mat-icon><h2>Select or add a step</h2></div>
+      }
+    </aside>
+  </div>
+
+  <section class="flow-test" aria-label="Test run">
+    <mat-form-field appearance="outline" class="flow-test-input"><mat-label>Sample input (JSON)</mat-label><textarea matInput rows="2" [ngModel]="testInput()" (ngModelChange)="testInput.set($event)"></textarea></mat-form-field>
+    <div class="flow-test-output">
+      @if (testing()) { <span class="muted"><mat-spinner diameter="18" />Running…</span> }
+      @if (testError()) { <p class="logic-result failed"><mat-icon>error_outline</mat-icon>{{ testError() }}</p> }
+      @if (testResult(); as result) {
+        <p class="flow-result" [class]="'flow-result state-' + result.status"><strong>{{ result.status === 'success' ? 'Succeeded' : result.status === 'empty' ? 'No data' : 'Failed' }}</strong> in {{ result.durationMs }}ms{{ result.error ? ' — ' + result.error : '' }}{{ result.emptyMessage ? ' — ' + result.emptyMessage : '' }}</p>
+        @for (entry of testLog(); track $index) { <p class="muted"><mat-icon>{{ entry.kind === 'message' ? 'notifications' : entry.kind === 'variable' ? 'data_object' : 'alt_route' }}</mat-icon>{{ entry.text }}</p> }
+        <pre class="flow-output">{{ json(result.output) }}</pre>
+      } @else if (!testing()) { <span class="muted">Run a test to see each step's result, timing and retries.</span> }
+    </div>
+  </section>
+}

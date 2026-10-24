@@ -1,0 +1,73 @@
+<div class="logic-node" [class]="'logic-node kind-' + kind()" [class.nested]="depth() > 0">
+  <div class="logic-node-head">
+    <button mat-button class="logic-kind" [matMenuTriggerFor]="changeMenu" [matTooltip]="info()?.description ?? 'Change what this value is'">
+      <mat-icon>{{ kind() === 'operation' ? 'functions' : kind() === 'variable' ? 'data_object' : kind() === 'list' ? 'format_list_bulleted' : kind() === 'object' ? 'account_tree' : 'edit' }}</mat-icon>
+      {{ kind() === 'operation' ? (info()?.label ?? op()) : kind() === 'variable' ? 'Variable' : kind() === 'text' ? 'Text' : kind() === 'number' ? 'Number' : kind() === 'boolean' ? 'Yes / No' : kind() === 'list' ? 'List' : kind() === 'object' ? 'Data' : 'Empty' }}
+      <mat-icon class="logic-caret">arrow_drop_down</mat-icon>
+    </button>
+    @switch (kind()) {
+      @case ('variable') {
+        <input class="logic-input" [attr.list]="listId" placeholder="e.g. vars.total" aria-label="Variable name" [ngModel]="variableName()" (ngModelChange)="setVariable($event)">
+        <datalist [id]="listId">@for (name of variables(); track name) { <option [value]="name"></option> }</datalist>
+      }
+      @case ('text') { <input class="logic-input" aria-label="Text value" [ngModel]="asString(value())" (ngModelChange)="valueChange.emit($event)"> }
+      @case ('number') { <input class="logic-input" type="number" aria-label="Number value" [ngModel]="number(value())" (ngModelChange)="valueChange.emit(number($event))"> }
+      @case ('boolean') { <mat-slide-toggle [ngModel]="!!value()" (ngModelChange)="valueChange.emit($event)">{{ value() ? 'Yes' : 'No' }}</mat-slide-toggle> }
+      @case ('operation') {
+        @if (args().length) { <button mat-icon-button matTooltip="Replace with its first input" aria-label="Remove operation" (click)="unwrap()"><mat-icon>layers_clear</mat-icon></button> }
+      }
+    }
+  </div>
+
+  @if (kind() === 'operation') {
+    <div class="logic-args">
+      @for (arg of args(); track $index) {
+        <div class="logic-arg">
+          <span class="logic-arg-name">{{ argName($index) }}</span>
+          <logic-node [value]="arg" [variables]="variables()" [depth]="depth() + 1" (valueChange)="setArg($index, $event)" />
+          @if (canRemoveArg($index)) { <button mat-icon-button class="logic-remove" [attr.aria-label]="'Remove ' + argName($index)" (click)="removeArg($index)"><mat-icon>close</mat-icon></button> }
+        </div>
+      }
+      @if (canAddArg()) { <button mat-button class="logic-add" (click)="addArg()"><mat-icon>add</mat-icon>Add {{ (info()?.args?.at(-1)?.name ?? 'value').toLowerCase() }}</button> }
+    </div>
+  }
+  @if (kind() === 'list') {
+    <div class="logic-args">
+      @for (item of $any(value()); track $index) {
+        <div class="logic-arg"><span class="logic-arg-name">#{{ $index + 1 }}</span><logic-node [value]="item" [variables]="variables()" [depth]="depth() + 1" (valueChange)="setListItem($index, $event)" /><button mat-icon-button class="logic-remove" aria-label="Remove item" (click)="removeListItem($index)"><mat-icon>close</mat-icon></button></div>
+      }
+      <button mat-button class="logic-add" (click)="addListItem()"><mat-icon>add</mat-icon>Add item</button>
+    </div>
+  }
+  @if (kind() === 'object') {
+    <div class="logic-args">
+      @for (entry of entries(); track $index) {
+        <div class="logic-arg"><input class="logic-input logic-key" aria-label="Field name" [ngModel]="entry[0]" (change)="setEntry($index, $any($event.target).value)"><logic-node [value]="entry[1]" [variables]="variables()" [depth]="depth() + 1" (valueChange)="setEntry($index, null, $event)" /><button mat-icon-button class="logic-remove" aria-label="Remove field" (click)="removeEntry($index)"><mat-icon>close</mat-icon></button></div>
+      }
+      <button mat-button class="logic-add" (click)="addEntry()"><mat-icon>add</mat-icon>Add field</button>
+    </div>
+  }
+</div>
+
+<mat-menu #changeMenu="matMenu">
+  <button mat-menu-item [matMenuTriggerFor]="opsMenu"><mat-icon>functions</mat-icon>Calculate with…</button>
+  <button mat-menu-item (click)="become('variable')"><mat-icon>data_object</mat-icon>Variable</button>
+  <button mat-menu-item (click)="become('text')"><mat-icon>text_fields</mat-icon>Fixed text</button>
+  <button mat-menu-item (click)="become('number')"><mat-icon>pin</mat-icon>Fixed number</button>
+  <button mat-menu-item (click)="become('boolean')"><mat-icon>toggle_on</mat-icon>Yes / No</button>
+  <button mat-menu-item (click)="become('list')"><mat-icon>format_list_bulleted</mat-icon>List</button>
+  <button mat-menu-item (click)="become('object')"><mat-icon>account_tree</mat-icon>Data (fields)</button>
+  <button mat-menu-item (click)="become('empty')"><mat-icon>block</mat-icon>Empty</button>
+</mat-menu>
+<mat-menu #opsMenu="matMenu">
+  @for (category of categories; track category) {
+    <button mat-menu-item [matMenuTriggerFor]="categoryMenu" [matMenuTriggerData]="{ category }">{{ category }}</button>
+  }
+</mat-menu>
+<mat-menu #categoryMenu="matMenu" class="logic-ops-menu">
+  <ng-template matMenuContent let-category="category">
+    @for (item of operators(category); track item.op) {
+      <button mat-menu-item (click)="useOperation(item)" [matTooltip]="item.description" matTooltipPosition="right"><span>{{ item.label }}</span></button>
+    }
+  </ng-template>
+</mat-menu>

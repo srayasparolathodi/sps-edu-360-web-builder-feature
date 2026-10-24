@@ -3,17 +3,19 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "pnpm -r test",
     "build": "pnpm exec nx run-many -t build",
-    "format": "prettier  \"{apps,api,libs,packages}/**/*.{ts,tsx,js,json,mjs}\" --ignore-path .gitignore",
+    "format": "prettier \"{apps,api,libs,scripts}/**/*.{ts,tsx,js,json,mjs}\" --ignore-path .gitignore",
     "format:check": "pnpm format --check",
     "format:write": "pnpm format --write",
     "lint": "pnpm exec nx run-many -t lint",
     "tsc": "pnpm exec nx run-many -t tsc",
     "validate": "pnpm format:write && pnpm tsc && pnpm lint",
     "prepare": "husky",
+    "dev:web-builder": "node scripts/dev-web-builder.mjs",
     "build:web-builder": "pnpm --filter @spsedu360/web-builder build",
-    "deploy:web-builder": "pnpm build:web-builder && wrangler deploy"
+    "deploy:web-builder": "pnpm build:web-builder && wrangler deploy",
+    "test:web-builder": "pnpm --filter @spsedu360/web-builder --filter @spsedu360/web-builder-api --filter @spsedu360/engine test"
   },
   "keywords": [],
   "author": "",
@@ -26,7 +28,6 @@
     "lint-staged": "^17.6.0",
     "nx": "^24.0.0",
     "prettier": "^3.9.10",
-    "userland": "^0.4.3",
     "wrangler": "^4.152.0"
   },
   "engines": {

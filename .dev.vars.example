@@ -1,0 +1,58 @@
+# Page Studio settings: copy to .dev.vars (git-ignored) for local development.
+# This file is committed: never put real values in it.
+# On Cloudflare, set the same names on the Worker: Settings → Variables and Secrets
+# (type "Secret" for anything secret), or `npx wrangler secret put NAME`.
+# Everything is optional; /api/health shows what is configured.
+
+# Builder sign-in when Cloudflare Access is not in front (local development).
+ADMIN_TOKEN=local-dev-token
+
+# Neon Postgres, database web_bulder_config (pooled connection string). Without it, Workers KV is used.
+DATABASE_URL=
+
+# Cloudflare Access: team domain (yourteam.cloudflareaccess.com) and the application's AUD tag.
+CF_ACCESS_TEAM_DOMAIN=
+CF_ACCESS_AUD=
+
+
+# Sign-in for app users on published apps (needs DATABASE_URL). Any long random string.
+BETTER_AUTH_SECRET=
+
+# Credentials authors save in the builder (database passwords, API keys) are encrypted with
+# this key and stored in Neon. At least 32 random characters; never change it later
+# (saved credentials would stop working). Generate one:
+#   node -e "console.log(crypto.randomBytes(32).toString('base64'))"
+CREDENTIALS_KEY=
+
+# Optional: an OpenBao server instead (it must run on its own host; Workers cannot run it).
+# OPENBAO_MOUNT defaults to "secret" (wrangler.jsonc).
+OPENBAO_ADDR=
+OPENBAO_TOKEN=
+OPENBAO_NAMESPACE=
+
+# Upstash Redis (shared circuit breakers, rate limits, cache) and QStash (background runs, schedules).
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+# Copy QSTASH_URL too: it says which QStash region your token belongs to.
+QSTASH_URL=
+QSTASH_TOKEN=
+QSTASH_CURRENT_SIGNING_KEY=
+QSTASH_NEXT_SIGNING_KEY=
+# Cloudflare Access service token (Zero Trust → Access → Service credentials). QStash sends it
+# so its calls to /api/queue/run get past Access; add a "Service Auth" policy for it on the app.
+CF_ACCESS_CLIENT_ID=
+CF_ACCESS_CLIENT_SECRET=
+
+# File and image uploads: Neon Object Storage, bucket web-bulder-config-s3 (S3_BUCKET in wrangler.jsonc).
+# Neon Console → your branch → Storage → create a credential; copy the values Neon shows.
+# The backend allows your site's domain in the bucket's CORS rules by itself on the first upload.
+AWS_ENDPOINT_URL_S3=
+AWS_REGION=
+# token_id
+AWS_ACCESS_KEY_ID=
+# s3_secret_access_key
+AWS_SECRET_ACCESS_KEY=
+
+# Read-only credentials for data sources and APIs set on the Worker itself;
+# flows read them as secrets.<NAME>. Example:
+# APP_SECRET_SCHOOL_DB=postgresql://user:password@host/db

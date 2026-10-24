@@ -1,8 +1,7 @@
 packages:
   - 'apps/*'
-  - 'libs/*'
   - 'api/*'
-  - 'packages/*'
+  - 'libs/*'
 
 # Dependencies allowed (true) or refused (false) to run install scripts.
 allowBuilds:

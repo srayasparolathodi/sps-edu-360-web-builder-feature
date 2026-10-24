@@ -1,0 +1,37 @@
+<div cdkDropList [id]="parentId()" [cdkDropListData]="blocks()" [cdkDropListConnectedTo]="connections()" [cdkDropListDisabled]="readonly()" (cdkDropListDropped)="drop($event)" class="drop-zone">
+  @for (block of blocks(); track block.id) {
+    <div cdkDrag [cdkDragData]="{ id: block.id }" [cdkDragDisabled]="readonly()" class="block-frame" [class.readonly-frame]="readonly()" [class.selected]="!readonly() && store.selectedId() === block.id" (click)="!readonly() && select($event, block)" tabindex="0" (keydown.enter)="store.selectedId.set(block.id)" [attr.aria-label]="block.name">
+      <div class="block-handle" cdkDragHandle><mat-icon>drag_indicator</mat-icon><span>{{ block.name }}</span>
+        @if (hasLogic(block)) { <mat-icon class="fx-badge" matTooltip="Has logic, data, a variable or events">bolt</mat-icon> }
+        @if (block.source) { <mat-icon class="fx-badge" matTooltip="Loads data from a flow">cloud_download</mat-icon> }
+      </div>
+      @if (isContainer(block.type)) {
+        @switch (block.type) {
+          @case ('component') {
+            <div class="component-instance"><div class="editor-note"><mat-icon>widgets</mat-icon>Component “{{ componentOf(block)?.name ?? 'missing' }}”: edit it once, every page using it follows
+              @if (!readonly() && componentOf(block)) { <button mat-button type="button" (click)="editComponent($event, block)">Edit component</button> }</div>
+              <block-tree [blocks]="expanded(block)" [parentId]="block.id + '-content'" [readonly]="true" /></div>
+          }
+          @case ('repeater') {
+            <div [class]="className(block)"><div class="editor-note"><mat-icon>dynamic_feed</mat-icon>Repeats its content for each item (use <code>item</code> in logic)</div><div class="repeater-item"><block-tree [blocks]="block.children" [parentId]="block.id" /></div></div>
+          }
+          @case ('modal') {
+            <div [class]="className(block) + ' modal-outline'"><div class="editor-note"><mat-icon>open_in_new</mat-icon>Modal: shown on top of the page when its variable is true</div><block-tree [blocks]="block.children" [parentId]="block.id" /></div>
+          }
+          @case ('hero') {
+            <section [class]="className(block)" [style.background-image]="heroImage(block)"><div class="hero-inner"><block-tree [blocks]="block.children" [parentId]="block.id" /></div></section>
+          }
+          @default {
+            <div [class]="className(block)"><block-tree [blocks]="block.children" [parentId]="block.id" /></div>
+          }
+        }
+      } @else {
+        <div [class]="className(block)"><block-content [block]="block" [view]="view(block)" /></div>
+      }
+    </div>
+  } @empty {
+    @if (readonly()) { <p class="muted">This component is empty.</p> } @else {
+    <button mat-button class="empty-drop" (click)="store.add('text', parentId())"><mat-icon>add</mat-icon>{{ parentId() === 'root' ? 'Drop or add a block' : 'Add content' }}</button>
+    }
+  }
+</div>

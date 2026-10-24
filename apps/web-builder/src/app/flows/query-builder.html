@@ -1,0 +1,161 @@
+@let q = query();
+<div class="query-builder">
+  <mat-button-toggle-group hideSingleSelectionIndicator class="qb-operation" aria-label="What the query does" [value]="q.operation" (change)="setOperation($event.value)">
+    <mat-button-toggle value="select"><mat-icon>visibility</mat-icon>Read</mat-button-toggle>
+    <mat-button-toggle value="insert"><mat-icon>add</mat-icon>Add</mat-button-toggle>
+    <mat-button-toggle value="update"><mat-icon>edit</mat-icon>Change</mat-button-toggle>
+    <mat-button-toggle value="upsert" matTooltip="Add a row, or update it if it already exists"><mat-icon>sync_alt</mat-icon>Add or update</mat-button-toggle>
+    <mat-button-toggle value="delete"><mat-icon>delete</mat-icon>Delete</mat-button-toggle>
+  </mat-button-toggle-group>
+
+  @if (!source()?.schema) {
+    <p class="muted"><mat-icon>info</mat-icon>Load the tables for this data source (Data → Data sources) to pick from lists. You can still type names.</p>
+  }
+
+  <section class="qb-section">
+    <h4>Table</h4>
+    @if (tables().length) {
+      <mat-form-field appearance="outline"><mat-label>Table</mat-label><mat-select [value]="q.from.table" (selectionChange)="setTable($event.value)">@for (table of tables(); track table) { <mat-option [value]="table">{{ table }}</mat-option> }</mat-select></mat-form-field>
+    } @else {
+      <mat-form-field appearance="outline"><mat-label>Table name</mat-label><input matInput [value]="q.from.table" (change)="setTable($any($event.target).value)"></mat-form-field>
+    }
+  </section>
+
+  @if (q.operation === 'select') {
+    <section class="qb-section">
+      <h4>Columns</h4>
+      <mat-form-field appearance="outline"><mat-label>Columns (empty = all)</mat-label>
+        <mat-select multiple [value]="selectedColumns()" (selectionChange)="setColumns($event.value)">@for (column of columns(); track column) { <mat-option [value]="column">{{ column }}</mat-option> }</mat-select>
+      </mat-form-field>
+      @for (item of aggregates(); track item.index) {
+        <div class="qb-row">
+          <mat-form-field appearance="outline"><mat-label>Summary</mat-label><mat-select [value]="aggregateFn(item.field.expr)" (selectionChange)="setAggregate(item.index, 'fn', $event.value)">@for (f of functions; track f.fn) { <mat-option [value]="f.fn">{{ f.label }}</mat-option> }</mat-select></mat-form-field>
+          <mat-form-field appearance="outline"><mat-label>Of column</mat-label><mat-select [value]="aggregateColumn(item.field.expr)" (selectionChange)="setAggregate(item.index, 'column', $event.value)"><mat-option value="">All rows</mat-option>@for (column of columns(); track column) { <mat-option [value]="column">{{ column }}</mat-option> }</mat-select></mat-form-field>
+          <mat-form-field appearance="outline"><mat-label>Name</mat-label><input matInput [value]="item.field.as ?? ''" (change)="setAggregate(item.index, 'as', $any($event.target).value)"></mat-form-field>
+          <button mat-icon-button aria-label="Remove summary" (click)="removeField(item.index)"><mat-icon>close</mat-icon></button>
+        </div>
+      }
+      <div class="qb-actions">
+        <button mat-button (click)="addAggregate()"><mat-icon>functions</mat-icon>Add a count, sum or average</button>
+        <mat-slide-toggle [checked]="!!q.distinct" (change)="setFlag('distinct', $event.checked)">No duplicate rows</mat-slide-toggle>
+      </div>
+    </section>
+
+    <section class="qb-section">
+      <h4>Combine with other tables</h4>
+      @for (join of q.joins ?? []; track $index; let i = $index) {
+        <div class="qb-row">
+          <mat-form-field appearance="outline"><mat-label>Keep</mat-label><mat-select [value]="join.type" (selectionChange)="setJoin(i, 'type', $event.value)"><mat-option value="left">All {{ q.from.table }} rows</mat-option><mat-option value="inner">Only matching rows</mat-option></mat-select></mat-form-field>
+          <mat-form-field appearance="outline"><mat-label>Table ({{ join.table.alias }})</mat-label>
+            @if (tables().length) { <mat-select [value]="join.table.table" (selectionChange)="setJoin(i, 'table', $event.value)">@for (table of tables(); track table) { <mat-option [value]="table">{{ table }}</mat-option> }</mat-select> }
+            @else { <input matInput [value]="join.table.table" (change)="setJoin(i, 'table', $any($event.target).value)"> }
+          </mat-form-field>
+          <mat-form-field appearance="outline"><mat-label>Where</mat-label><mat-select [value]="joinColumn(i, 'left')" (selectionChange)="setJoin(i, 'left', $event.value)">@for (column of columns(); track column) { <mat-option [value]="column">{{ column }}</mat-option> }</mat-select></mat-form-field>
+          <span class="qb-equals">=</span>
+          <mat-form-field appearance="outline"><mat-label>matches</mat-label><mat-select [value]="joinColumn(i, 'right')" (selectionChange)="setJoin(i, 'right', $event.value)">@for (column of columns(); track column) { <mat-option [value]="column">{{ column }}</mat-option> }</mat-select></mat-form-field>
+          <button mat-icon-button aria-label="Remove table" (click)="removeJoin(i)"><mat-icon>close</mat-icon></button>
+        </div>
+      }
+      <button mat-button [disabled]="!q.from.table" (click)="addJoin()"><mat-icon>join_inner</mat-icon>Add a table</button>
+    </section>
+  }
+
+  @if (q.operation === 'insert' || q.operation === 'update' || q.operation === 'upsert') {
+    <section class="qb-section">
+      <h4>{{ q.operation === 'update' ? 'Values to change' : 'Values to add' }}</h4>
+      @for (item of q.set ?? []; track $index; let i = $index) {
+        <div class="qb-set">
+          <div class="qb-row">
+            <mat-form-field appearance="outline"><mat-label>Column</mat-label>
+              @if (baseColumns().length) { <mat-select [value]="item.column" (selectionChange)="setSetColumn(i, $event.value)">@for (column of baseColumns(); track column) { <mat-option [value]="column">{{ column }}</mat-option> }</mat-select> }
+              @else { <input matInput [value]="item.column" (change)="setSetColumn(i, $any($event.target).value)"> }
+            </mat-form-field>
+            <button mat-icon-button aria-label="Remove value" (click)="removeSet(i)"><mat-icon>close</mat-icon></button>
+          </div>
+          <logic-field label="Value" [startOpen]="true" [optional]="false" [value]="setValueOf(i)" [variables]="variables()" [sample]="sample()" (valueChange)="setSetValue(i, $event)" />
+        </div>
+      }
+      <button mat-button (click)="addSet()"><mat-icon>add</mat-icon>Add a column</button>
+      @if (q.operation === 'upsert') {
+        <mat-form-field appearance="outline"><mat-label>Columns that identify an existing row</mat-label>
+          <mat-select multiple [value]="q.conflict ?? []" (selectionChange)="setConflict($event.value)">@for (column of baseColumns(); track column) { <mat-option [value]="column">{{ column }}</mat-option> }</mat-select>
+          <mat-hint>Usually the id or another unique column.</mat-hint>
+        </mat-form-field>
+      }
+    </section>
+  }
+
+  @if (q.operation !== 'insert' && q.operation !== 'upsert') {
+    <section class="qb-section">
+      <div class="qb-head">
+        <h4>Filters</h4>
+        @if (filters().rules.length > 1) {
+          <mat-button-toggle-group hideSingleSelectionIndicator [value]="filters().mode" aria-label="Combine filters" (change)="setFilterMode($event.value)">
+            <mat-button-toggle value="and">Match all</mat-button-toggle><mat-button-toggle value="or">Match any</mat-button-toggle>
+          </mat-button-toggle-group>
+        }
+      </div>
+      @for (rule of filters().rules; track $index; let i = $index) {
+        <div class="qb-filter">
+          <div class="qb-row">
+            <mat-form-field appearance="outline"><mat-label>Column</mat-label>
+              @if (columns().length) { <mat-select [value]="rule.column" (selectionChange)="setRule(i, 'column', $event.value)">@for (column of columns(); track column) { <mat-option [value]="column">{{ column }}</mat-option> }</mat-select> }
+              @else { <input matInput [value]="rule.column" (change)="setRule(i, 'column', $any($event.target).value)"> }
+            </mat-form-field>
+            <mat-form-field appearance="outline"><mat-label>Condition</mat-label><mat-select [value]="rule.op" (selectionChange)="setRule(i, 'op', $event.value)">@for (op of operators; track op.op) { <mat-option [value]="op.op">{{ op.label }}</mat-option> }</mat-select></mat-form-field>
+            <button mat-icon-button aria-label="Remove filter" (click)="removeRule(i)"><mat-icon>close</mat-icon></button>
+          </div>
+          @if (needsValue(rule.op)) {
+            <logic-field [label]="rule.op === 'between' ? 'From' : rule.op === 'in' ? 'List of values' : 'Value'" [startOpen]="true" [optional]="false" [value]="rule.value" [variables]="variables()" [sample]="sample()" (valueChange)="setRule(i, 'value', $event)" />
+            @if (rule.op === 'between') { <logic-field label="To" [startOpen]="true" [optional]="false" [value]="rule.value2" [variables]="variables()" [sample]="sample()" (valueChange)="setRule(i, 'value2', $event)" /> }
+          }
+          <logic-field label="Only use this filter when" hint="e.g. when a search box has text. Leave empty to always filter." [value]="rule.when" [variables]="variables()" [sample]="sample()" (valueChange)="setRule(i, 'when', $event)" />
+        </div>
+      }
+      @if (filters().advanced.length) { <p class="muted"><mat-icon>code</mat-icon>{{ filters().advanced.length }} advanced filter(s), editable in JSON.</p> }
+      <button mat-button [disabled]="!q.from.table" (click)="addFilter()"><mat-icon>filter_alt</mat-icon>Add a filter</button>
+      @if (q.operation !== 'select' && !q.where) {
+        <mat-slide-toggle [checked]="!!q.allowAllRows" (change)="setFlag('allowAllRows', $event.checked)">Allow {{ q.operation === 'delete' ? 'deleting' : 'changing' }} every row</mat-slide-toggle>
+      }
+    </section>
+  }
+
+  @if (q.operation === 'select') {
+    <section class="qb-section">
+      <h4>Group, sort and page</h4>
+      <mat-form-field appearance="outline"><mat-label>Group rows by</mat-label>
+        <mat-select multiple [value]="groupByColumns()" (selectionChange)="setGroupBy($event.value)">@for (column of columns(); track column) { <mat-option [value]="column">{{ column }}</mat-option> }</mat-select>
+      </mat-form-field>
+      @for (order of q.orderBy ?? []; track $index; let i = $index) {
+        <div class="qb-row">
+          <mat-form-field appearance="outline"><mat-label>Sort by</mat-label><mat-select [value]="sortColumn(i)" (selectionChange)="setSort(i, 'column', $event.value)">@for (column of columns(); track column) { <mat-option [value]="column">{{ column }}</mat-option> }</mat-select></mat-form-field>
+          <mat-form-field appearance="outline"><mat-label>Order</mat-label><mat-select [value]="order.direction ?? 'asc'" (selectionChange)="setSort(i, 'direction', $event.value)"><mat-option value="asc">A → Z, low → high</mat-option><mat-option value="desc">Z → A, high → low</mat-option></mat-select></mat-form-field>
+          <button mat-icon-button aria-label="Remove sort" (click)="removeSort(i)"><mat-icon>close</mat-icon></button>
+        </div>
+      }
+      <button mat-button [disabled]="!q.from.table" (click)="addSort()"><mat-icon>sort</mat-icon>Add a sort</button>
+      <logic-field label="Row limit" hint="Up to 10,000; default 1,000. Use a variable for paging, e.g. vars.pageSize." [value]="q.limit" [variables]="variables()" [sample]="sample()" (valueChange)="setPaging('limit', $event)" />
+      <logic-field label="Skip rows" hint="For paging, e.g. (page − 1) × page size." [value]="q.offset" [variables]="variables()" [sample]="sample()" (valueChange)="setPaging('offset', $event)" />
+    </section>
+  }
+
+  @if (q.operation !== 'select' && source()?.type === 'postgres') {
+    <mat-form-field appearance="outline"><mat-label>Return these columns afterwards</mat-label>
+      <mat-select multiple [value]="q.returning ?? []" (selectionChange)="setReturning($event.value)">@for (column of baseColumns(); track column) { <mat-option [value]="column">{{ column }}</mat-option> }</mat-select>
+    </mat-form-field>
+  }
+
+  <section class="qb-preview" [class.failed]="!preview().ok" aria-live="polite">
+    <div class="qb-head"><h4>{{ preview().ok ? 'SQL our engine will run' : 'Fix this first' }}</h4><button mat-button (click)="openJson()"><mat-icon>data_object</mat-icon>Advanced (JSON)</button></div>
+    <pre>{{ preview().text }}</pre>
+    @if (preview().ok) { <p class="muted">Values are sent separately as parameters, never pasted into the SQL.</p> }
+  </section>
+
+  @if (showJson()) {
+    <section class="qb-section">
+      <textarea class="logic-json" rows="14" spellcheck="false" aria-label="Query JSON" [ngModel]="jsonDraft()" (ngModelChange)="jsonDraft.set($event)"></textarea>
+      @if (jsonError()) { <p class="logic-result failed"><mat-icon>error_outline</mat-icon>{{ jsonError() }}</p> }
+      <div class="qb-actions"><button mat-flat-button (click)="applyJson()">Apply</button><button mat-button (click)="showJson.set(false)">Cancel</button></div>
+    </section>
+  }
+</div>

@@ -1,0 +1,434 @@
+@if (loading()) {
+  <div class="builder-skeleton" aria-busy="true" aria-label="Opening project">
+    <div class="skeleton skeleton-bar"></div>
+    <div class="builder-skeleton-body"><div class="skeleton skeleton-panel"></div><div class="skeleton skeleton-canvas"></div><div class="skeleton skeleton-panel"></div></div>
+  </div>
+} @else if (loadError()) {
+  <div class="state-card state-error page-missing" role="alert">
+    <mat-icon>folder_off</mat-icon>
+    <div><strong>Couldn't open this project</strong><span>{{ loadError() }}</span></div>
+    <button mat-stroked-button (click)="open(store.project().id)"><mat-icon>refresh</mat-icon>Try again</button>
+    <a mat-button routerLink="/"><mat-icon>arrow_back</mat-icon>All projects</a>
+  </div>
+} @else {
+<mat-toolbar class="studio-toolbar">
+  <a mat-icon-button routerLink="/" matTooltip="All projects" aria-label="All projects"><mat-icon>arrow_back</mat-icon></a>
+  <span class="brand-mark"><mat-icon>dashboard_customize</mat-icon></span>
+  <input class="project-name" aria-label="Project name" [ngModel]="store.project().name" (ngModelChange)="projectName($event)">
+  <span class="save-state" [class.unsaved]="store.dirty()"><mat-icon>{{ store.dirty() ? 'edit_note' : api.isCloud() ? 'cloud_done' : 'save' }}</mat-icon>{{ saveState() }}</span>
+  <span class="toolbar-spacer"></span>
+  <span class="toolbar-divider desktop-only"></span>
+  <button mat-icon-button class="desktop-only" matTooltip="Undo (Ctrl+Z)" aria-label="Undo" [disabled]="!store.history().length" (click)="store.undo()"><mat-icon>undo</mat-icon></button>
+  <button mat-icon-button class="desktop-only" matTooltip="Redo (Ctrl+Shift+Z)" aria-label="Redo" [disabled]="!store.future().length" (click)="store.redo()"><mat-icon>redo</mat-icon></button>
+  <mat-button-toggle-group hideSingleSelectionIndicator class="desktop-only" aria-label="Viewport" [value]="store.viewport()" (change)="store.viewport.set($event.value)">
+    <mat-button-toggle value="desktop" matTooltip="Desktop" aria-label="Desktop"><mat-icon>desktop_windows</mat-icon></mat-button-toggle>
+    <mat-button-toggle value="tablet" matTooltip="Tablet" aria-label="Tablet"><mat-icon>tablet_mac</mat-icon></mat-button-toggle>
+    <mat-button-toggle value="mobile" matTooltip="Mobile" aria-label="Mobile"><mat-icon>phone_iphone</mat-icon></mat-button-toggle>
+  </mat-button-toggle-group>
+  <span class="toolbar-divider desktop-only"></span>
+  <button mat-icon-button class="desktop-only" matTooltip="Site map: pages, paths and flows" aria-label="Site map" (click)="openMap()"><mat-icon>hub</mat-icon></button>
+  <button mat-icon-button [matTooltip]="store.preview() ? 'Back to editor' : 'Preview with live logic'" [attr.aria-label]="store.preview() ? 'Back to editor' : 'Preview'" (click)="store.preview.set(!store.preview())"><mat-icon>{{ store.preview() ? 'edit' : 'play_circle' }}</mat-icon></button>
+  <button mat-icon-button class="desktop-only" matTooltip="Toggle theme" aria-label="Toggle theme" (click)="toggleDark()"><mat-icon>{{ store.project().dark ? 'light_mode' : 'dark_mode' }}</mat-icon></button>
+  <span class="toolbar-divider desktop-only"></span>
+  <button mat-button class="desktop-only" (click)="save()" [disabled]="store.saving()"><mat-icon>save</mat-icon>Save</button>
+  <button mat-icon-button class="mobile-only" aria-label="More actions" [matMenuTriggerFor]="moreMenu"><mat-icon>more_vert</mat-icon></button>
+  <mat-menu #moreMenu="matMenu">
+    <button mat-menu-item (click)="save()" [disabled]="store.saving()"><mat-icon>save</mat-icon>Save</button>
+    <button mat-menu-item [disabled]="!store.history().length" (click)="store.undo()"><mat-icon>undo</mat-icon>Undo</button>
+    <button mat-menu-item [disabled]="!store.future().length" (click)="store.redo()"><mat-icon>redo</mat-icon>Redo</button>
+    <button mat-menu-item (click)="openMap()"><mat-icon>hub</mat-icon>Site map</button>
+    <button mat-menu-item (click)="toggleDark()"><mat-icon>{{ store.project().dark ? 'light_mode' : 'dark_mode' }}</mat-icon>{{ store.project().dark ? 'Light theme' : 'Dark theme' }}</button>
+  </mat-menu>
+  <button mat-flat-button class="publish-button" [matMenuTriggerFor]="publishMenu"><mat-icon>rocket_launch</mat-icon><span class="publish-label">{{ store.summary()?.publishedAt ? 'Published' : 'Publish' }}</span></button>
+  <mat-menu #publishMenu="matMenu">
+    <button mat-menu-item [disabled]="!api.isCloud()" (click)="openPublish()"><mat-icon>publish</mat-icon>Publish pages, components and app…</button>
+    @if (store.summary()?.publishedAt) {
+      <p class="menu-note live-address">{{ liveUrl() }}</p>
+      <a mat-menu-item [href]="liveUrl()" target="_blank" rel="noopener"><mat-icon>open_in_new</mat-icon>Open live site</a>
+      <button mat-menu-item (click)="copyLink()"><mat-icon>link</mat-icon>Copy live link</button>
+    }
+    @if (!api.isCloud()) { <p class="menu-note">Connect cloud storage on the projects page to publish.</p> }
+    <mat-divider />
+    <button mat-menu-item (click)="exportHtml()"><mat-icon>html</mat-icon>Export page as HTML</button>
+    <button mat-menu-item (click)="exportJson()"><mat-icon>data_object</mat-icon>Export project JSON</button>
+    <button mat-menu-item (click)="fileInput.click()"><mat-icon>upload</mat-icon>Import project JSON</button>
+  </mat-menu>
+  <input #fileInput type="file" accept="application/json,.json" class="visually-hidden" (change)="importJson($event)">
+</mat-toolbar>
+
+<div class="studio-workspace" [class.preview-mode]="store.preview()" [class]="'studio-workspace panel-' + panel()">
+  @if (!store.preview()) {
+    <div class="panel-switch" role="tablist" aria-label="Side panel">
+      <button mat-button role="tab" [attr.aria-selected]="panel() === 'library'" [class.active]="panel() === 'library'" (click)="panel.set('library')"><mat-icon>widgets</mat-icon>Blocks</button>
+      <button mat-button role="tab" [attr.aria-selected]="panel() !== 'library'" [class.active]="panel() !== 'library'" (click)="panel.set('inspector')"><mat-icon>tune</mat-icon>Properties</button>
+    </div>
+    <aside class="library-panel" aria-label="Block library">
+      <mat-tab-group mat-stretch-tabs="false" class="dense-tabs">
+        <mat-tab label="Blocks">
+          <div class="panel-content"><mat-form-field appearance="outline" class="search-field"><mat-label>Search blocks</mat-label><mat-icon matPrefix>search</mat-icon><input matInput [ngModel]="search()" (ngModelChange)="search.set($event)"></mat-form-field>
+            <div cdkDropList id="palette" [cdkDropListData]="[]" [cdkDropListConnectedTo]="paletteConnections()" [cdkDropListSortingDisabled]="true" [cdkDropListEnterPredicate]="rejectPalette" class="palette">
+              <mat-accordion multi>
+                @for (group of groups; track group) {
+                  @if (blocks(group).length) {
+                    <mat-expansion-panel [expanded]="true"><mat-expansion-panel-header><mat-panel-title>{{ group }}</mat-panel-title></mat-expansion-panel-header><div class="block-library-grid">
+                      @for (block of blocks(group); track block.type) { <button mat-button cdkDrag [cdkDragData]="{ type: block.type }" (click)="add(block.type)" [attr.aria-label]="'Add ' + block.label" class="library-block"><mat-icon>{{ block.icon }}</mat-icon><span>{{ block.label }}</span><div *cdkDragPreview class="palette-preview"><mat-icon>{{ block.icon }}</mat-icon>{{ block.label }}</div></button> }
+                    </div></mat-expansion-panel>
+                  }
+                }
+              </mat-accordion>
+            </div>
+          </div>
+        </mat-tab>
+        <mat-tab label="Layers"><div class="panel-content layers">
+          @for (layer of layers(); track layer.block.id) { <button mat-button [class.active-layer]="store.selectedId() === layer.block.id" [style.padding-left.px]="8 + layer.depth * 14" (click)="store.selectedId.set(layer.block.id)"><mat-icon>{{ isContainer(layer.block.type) ? 'folder_open' : 'widgets' }}</mat-icon>{{ layer.block.name }}@if (hasLogic(layer.block)) { <mat-icon class="fx-badge" matTooltip="Has logic, data or events">bolt</mat-icon> }</button> } @empty { <p class="muted">No blocks yet.</p> }
+        </div></mat-tab>
+        <mat-tab label="Pages"><div class="panel-content page-list">
+          @for (page of store.project().pages; track page.id) { <button mat-button [class.active-layer]="store.pageId() === page.id" (click)="selectPage(page.id)"><mat-icon>{{ pathParams(page.path).length ? 'route' : $first ? 'home' : 'description' }}</mat-icon><span class="page-entry"><span>{{ page.name }}</span><code>/{{ page.path }}</code></span></button> }
+          <button mat-stroked-button (click)="store.addPage()"><mat-icon>add</mat-icon>Add page</button>
+          @for (issue of nameIssues(); track issue) { <p class="logic-result failed" role="alert"><mat-icon>error_outline</mat-icon>{{ issue }}</p> }
+          @if (store.editingComponent()) { <p class="muted">You are editing a component. Pick a page above to edit it.</p> } @else {
+          <mat-form-field appearance="outline"><mat-label>Page name</mat-label><input matInput [ngModel]="store.page().name" (ngModelChange)="pageName($event)"></mat-form-field>
+          <mat-form-field appearance="outline"><mat-label>Page path</mat-label><span matTextPrefix>/</span><input matInput [value]="store.page().path" (change)="pagePath($any($event.target).value)" placeholder="students/:studentId/reports/:term"><mat-hint>Use :name for values from the address, e.g. students/:id</mat-hint></mat-form-field>
+          @if (pathParams(store.page().path).length) {
+            <p class="muted">Path variables: @for (param of pathParams(store.page().path); track param) { <code>params.{{ param }}</code> }</p>
+          }
+          @if (store.project().auth?.enabled) {
+            <mat-form-field appearance="outline"><mat-label>Who can open this page</mat-label>
+              <mat-select multiple [value]="accessChoice(store.page().access)" (selectionChange)="setPageAccess($event.value)">
+                <mat-option value="public">Everyone</mat-option><mat-option value="signedIn">Anyone signed in</mat-option>
+                @for (role of roles(); track role.id) { <mat-option [value]="role.id">{{ role.name }}</mat-option> }
+              </mat-select>
+              <mat-hint>Enforced on the server: content is never sent to others.</mat-hint>
+            </mat-form-field>
+          }
+          <button mat-button [disabled]="store.project().pages.length < 2" (click)="deletePage()"><mat-icon>delete_outline</mat-icon>Delete page</button>
+          }
+        </div></mat-tab>
+        <mat-tab label="Components"><div class="panel-content page-list">
+          <p class="muted">Build a piece once and place it on any page of this app. Changing a component sends every page using it back for review.</p>
+          <div class="inline-actions">
+            <button mat-stroked-button (click)="newComponent()"><mat-icon>add</mat-icon>New component</button>
+            <button mat-stroked-button [disabled]="!store.selected() || store.selected()?.type === 'component'" (click)="makeComponent()" matTooltip="Turns the selected block into a reusable component"><mat-icon>library_add</mat-icon>From selected block</button>
+          </div>
+          @for (row of componentRows(); track row.component.id) {
+            <div class="variable-card component-card" [class.active-layer]="store.pageId() === row.component.id">
+              <mat-form-field appearance="outline" subscriptSizing="dynamic"><mat-label>Component name</mat-label><input matInput [ngModel]="row.component.name" (ngModelChange)="componentName(row.component.id, $event)"></mat-form-field>
+              <span class="muted">{{ row.pages.length ? 'Used on ' + row.pages.join(', ') : 'Not used on any page yet' }}</span>
+              <div class="variable-foot">
+                <button mat-button (click)="selectPage(row.component.id)"><mat-icon>edit</mat-icon>Edit</button>
+                <button mat-button [disabled]="store.pageId() === row.component.id" (click)="placeComponent(row.component.id)"><mat-icon>add_to_photos</mat-icon>Place here</button>
+                <button mat-icon-button [attr.aria-label]="'Delete ' + row.component.name" (click)="deleteComponent(row.component.id, row.pages)"><mat-icon>delete_outline</mat-icon></button>
+              </div>
+            </div>
+          } @empty { <p class="muted">No components yet.</p> }
+        </div></mat-tab>
+        <mat-tab label="Data"><div class="panel-content variable-list">
+          <p class="muted">Variables hold values that blocks show and flows change. <strong>Visit</strong> resets on reload, <strong>Session</strong> lasts until the tab closes, <strong>Device</strong> is kept in local storage.</p>
+          @for (variable of store.project().variables; track variable.id) {
+            <div class="variable-card">
+              <div class="inline-fields">
+                <mat-form-field appearance="outline"><mat-label>Name</mat-label><input matInput [value]="variable.name" (change)="setVariableName(variable, $any($event.target).value)"></mat-form-field>
+                <mat-form-field appearance="outline"><mat-label>Kept for</mat-label><mat-select [value]="variable.scope" (selectionChange)="store.updateVariable(variable.id, { scope: $event.value })"><mat-option value="vars">Visit</mat-option><mat-option value="session">Session</mat-option><mat-option value="local">Device</mat-option></mat-select></mat-form-field>
+              </div>
+              <mat-form-field appearance="outline"><mat-label>Starting value</mat-label><input matInput [value]="variableInitial(variable)" (change)="setVariableInitial(variable, $any($event.target).value)"><mat-hint>Text, a number, true/false, or JSON like [1,2]</mat-hint></mat-form-field>
+              <div class="variable-foot"><code>{{ variable.scope }}.{{ variable.name }}</code><button mat-icon-button [attr.aria-label]="'Delete ' + variable.name" (click)="store.deleteVariable(variable.id)"><mat-icon>delete_outline</mat-icon></button></div>
+            </div>
+          } @empty { <p class="muted">No variables yet.</p> }
+          <button mat-stroked-button (click)="store.addVariable()"><mat-icon>add</mat-icon>Add variable</button>
+
+          <h3 class="panel-title">Sign-in and roles</h3>
+          <mat-slide-toggle [checked]="!!store.project().auth?.enabled" (change)="setAuth({ enabled: $event.checked })">Visitors can sign in</mat-slide-toggle>
+          @if (store.project().auth?.enabled) {
+            @if (!api.siteAuth()) { <p class="logic-result failed"><mat-icon>info</mat-icon>The server needs DATABASE_URL and BETTER_AUTH_SECRET for visitor sign-in.</p> }
+            <mat-slide-toggle [checked]="store.project().auth!.allowSignUp" (change)="setAuth({ allowSignUp: $event.checked })">Visitors can create their own account</mat-slide-toggle>
+            <mat-form-field appearance="outline"><mat-label>Role for new accounts</mat-label><mat-select [value]="store.project().auth!.defaultRole" (selectionChange)="setAuth({ defaultRole: $event.value })">@for (role of roles(); track role.id) { <mat-option [value]="role.id">{{ role.name }}</mat-option> }</mat-select></mat-form-field>
+            @for (role of roles(); track $index; let i = $index) {
+              <div class="variable-card">
+                <div class="inline-fields">
+                  <mat-form-field appearance="outline"><mat-label>Role name</mat-label><input matInput [value]="role.name" (change)="setRole(i, { name: $any($event.target).value })"></mat-form-field>
+                  <mat-form-field appearance="outline"><mat-label>Id (used in logic)</mat-label><input matInput [value]="role.id" (change)="setRole(i, { id: $any($event.target).value })"></mat-form-field>
+                </div>
+                <div class="variable-foot"><code>user.roles contains "{{ role.id }}"</code><button mat-icon-button [disabled]="roles().length < 2" [attr.aria-label]="'Delete role ' + role.name" (click)="removeRole(i)"><mat-icon>delete_outline</mat-icon></button></div>
+              </div>
+            }
+            <button mat-stroked-button (click)="addRole()"><mat-icon>add_moderator</mat-icon>Add role</button>
+            <h4 class="panel-title">People and their roles</h4>
+            <p class="muted">Roles belong to this app only. You decide who has which role; admins can change it on any app.</p>
+            @for (member of members(); track member.userId) {
+              <div class="secret-row"><span class="member-email">{{ member.email }}</span>
+                <mat-form-field appearance="outline" class="member-role" subscriptSizing="dynamic"><mat-select [value]="member.role" (selectionChange)="setMemberRole(member, $event.value)" [attr.aria-label]="'Role for ' + member.email">@for (role of roles(); track role.id) { <mat-option [value]="role.id">{{ role.name }}</mat-option> }</mat-select></mat-form-field>
+                <button mat-icon-button [attr.aria-label]="'Remove ' + member.email" (click)="removeMember(member)"><mat-icon>person_remove</mat-icon></button>
+              </div>
+            } @empty { <p class="muted">No members yet. Add people below, or they appear here after signing up on the published site.</p> }
+            <div class="invite-row">
+              <mat-form-field appearance="outline" subscriptSizing="dynamic"><mat-label>Email</mat-label><input matInput type="email" autocomplete="off" [value]="inviteEmail()" (input)="inviteEmail.set($any($event.target).value)" (keydown.enter)="invite()"></mat-form-field>
+              <mat-form-field appearance="outline" class="member-role" subscriptSizing="dynamic"><mat-label>Role</mat-label><mat-select [value]="inviteRole() || store.project().auth!.defaultRole" (selectionChange)="inviteRole.set($event.value)">@for (role of roles(); track role.id) { <mat-option [value]="role.id">{{ role.name }}</mat-option> }</mat-select></mat-form-field>
+              <button mat-icon-button aria-label="Add person" [disabled]="!api.isCloud() || !inviteEmail().includes('@')" (click)="invite()"><mat-icon>person_add</mat-icon></button>
+            </div>
+            <p class="muted">In logic, use <code>user.signedIn</code>, <code>user.email</code> and <code>user.roles</code>. Server flows get the same <code>user</code> from the session, so queries can fetch only that person's data.</p>
+          }
+
+          <h3 class="panel-title">Data sources</h3>
+          <p class="muted">Connect PostgreSQL or MySQL databases. The connection URL is kept as a credential (below), never in the project. Query them with a server flow's "Query database" step.</p>
+          @for (source of store.project().dataSources; track source.id) {
+            <div class="variable-card">
+              <div class="inline-fields">
+                <mat-form-field appearance="outline"><mat-label>Name</mat-label><input matInput [value]="source.name" (change)="store.updateDataSource(source.id, { name: $any($event.target).value })"></mat-form-field>
+                <mat-form-field appearance="outline"><mat-label>Type</mat-label><mat-select [value]="source.type" (selectionChange)="store.updateDataSource(source.id, { type: $event.value, schema: undefined })"><mat-option value="postgres">PostgreSQL</mat-option><mat-option value="mysql">MySQL</mat-option></mat-select></mat-form-field>
+              </div>
+              <mat-form-field appearance="outline"><mat-label>Credential with the connection URL</mat-label>
+                @if (store.secretNames().length) {
+                  <mat-select [value]="source.credential" (selectionChange)="store.updateDataSource(source.id, { credential: $event.value })">@for (name of store.secretNames(); track name) { <mat-option [value]="name">{{ name }}</mat-option> }</mat-select>
+                } @else { <input matInput [value]="source.credential" (change)="store.updateDataSource(source.id, { credential: $any($event.target).value })"> }
+                <mat-hint>e.g. {{ source.type === 'mysql' ? 'mysql://user:pass@host:3306/db' : 'postgresql://user:pass@host:5432/db' }}</mat-hint>
+              </mat-form-field>
+              <mat-slide-toggle [checked]="source.readOnly" (change)="store.updateDataSource(source.id, { readOnly: $event.checked })">Read only (no adding, changing or deleting rows)</mat-slide-toggle>
+              <div class="variable-foot">
+                <span class="muted">{{ source.schema ? tableCount(source.schema) + ' tables loaded' : 'Tables not loaded' }}</span>
+                <span>
+                  <button mat-button [disabled]="loadingSchema() === source.id || !api.isCloud()" (click)="loadTables(source.id)"><mat-icon>sync</mat-icon>{{ loadingSchema() === source.id ? 'Loading…' : 'Load tables' }}</button>
+                  <button mat-icon-button [attr.aria-label]="'Delete ' + source.name" (click)="deleteDataSource(source.id)"><mat-icon>delete_outline</mat-icon></button>
+                </span>
+              </div>
+            </div>
+          } @empty { <p class="muted">No data sources yet.</p> }
+          <button mat-stroked-button (click)="store.addDataSource()"><mat-icon>database</mat-icon>Add data source</button>
+
+          <h3 class="panel-title">Credentials</h3>
+          <p class="muted">API keys and tokens for server flows. They are stored {{ secretsInfo()?.provider === 'openbao' ? 'in OpenBao' : secretsInfo()?.provider === 'database' ? 'encrypted on the server' : 'on the server' }}, never shown again and never sent to visitors. Use <code>secrets.NAME</code> in a server flow.</p>
+          @if (!api.isCloud()) {
+            <p class="muted">Connect cloud storage on the projects page to manage credentials.</p>
+          } @else if (secretsError()) {
+            <div class="state-card state-error" role="alert"><mat-icon>key_off</mat-icon><span>{{ secretsError() }}</span><button mat-button (click)="loadSecrets()">Retry</button></div>
+          } @else {
+            @for (name of store.secretNames(); track name) {
+              <div class="secret-row"><code>secrets.{{ name }}</code>@if (secretsInfo()?.writable) { <button mat-icon-button [attr.aria-label]="'Delete ' + name" (click)="removeSecret(name)"><mat-icon>delete_outline</mat-icon></button> }</div>
+            } @empty { <p class="muted">No credentials yet.</p> }
+            @if (secretsInfo()?.writable) {
+              <mat-form-field appearance="outline"><mat-label>Name</mat-label><input matInput placeholder="WEATHER_API_KEY" [ngModel]="newSecretName()" (ngModelChange)="newSecretName.set($event)"></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Value</mat-label><input matInput type="password" autocomplete="new-password" [ngModel]="newSecretValue()" (ngModelChange)="newSecretValue.set($event)"></mat-form-field>
+              <button mat-stroked-button [disabled]="!newSecretName() || !newSecretValue()" (click)="addSecret()"><mat-icon>key</mat-icon>Save credential</button>
+            } @else {
+              <p class="muted">To add credentials from here, set CREDENTIALS_KEY on the Worker (see the README).</p>
+            }
+          }
+        </div></mat-tab>
+        <mat-tab label="Files"><div class="panel-content">
+          <ng-template matTabContent><asset-library [projectId]="store.project().id" /></ng-template>
+        </div></mat-tab>
+        <mat-tab label="Logic"><div class="panel-content flow-list">
+          <p class="muted">Flows are the app's logic: calculations, API calls with retries and circuit breakers, messages and navigation, all configured without code.</p>
+          @for (flow of store.project().flows; track flow.id) {
+            <div class="flow-card">
+              <button mat-button class="flow-card-main" (click)="openFlow(flow.id)"><mat-icon>{{ flow.runAt === 'server' ? 'dns' : 'account_tree' }}</mat-icon><span class="page-entry"><span>{{ flow.name }}</span><code>{{ flow.runAt === 'server' ? 'Server' : 'Browser' }} · {{ flow.steps.length }} steps · {{ flowTrigger(flow.id) }}</code></span></button>
+              <button mat-icon-button [matMenuTriggerFor]="flowMenu" [attr.aria-label]="'More for ' + flow.name"><mat-icon>more_vert</mat-icon></button>
+              <mat-menu #flowMenu="matMenu"><button mat-menu-item (click)="openFlow(flow.id)"><mat-icon>edit</mat-icon>Edit</button><button mat-menu-item (click)="store.duplicateFlow(flow.id)"><mat-icon>content_copy</mat-icon>Duplicate</button><button mat-menu-item (click)="deleteFlow(flow.id)"><mat-icon>delete_outline</mat-icon>Delete</button></mat-menu>
+            </div>
+          } @empty { <p class="muted">No flows yet.</p> }
+          <button mat-stroked-button (click)="newFlow()"><mat-icon>add</mat-icon>New flow</button>
+          <button mat-button (click)="openMap()"><mat-icon>hub</mat-icon>Open site map</button>
+        </div></mat-tab>
+      </mat-tab-group>
+    </aside>
+  }
+  <main class="canvas-area" aria-label="Page canvas">
+    @if (store.preview()) {
+      <div class="preview-bar">
+        <mat-icon>language</mat-icon><span class="muted">/{{ store.summary()?.slug || store.project().slug || 'your-address' }}/</span>
+        <input class="preview-path" aria-label="Preview address" [value]="previewPath()" (change)="previewPath.set($any($event.target).value)" placeholder="page/path?key=value">
+        @if (store.project().auth?.enabled) {
+          <mat-form-field appearance="outline" class="preview-as" subscriptSizing="dynamic"><mat-label>Preview as</mat-label>
+            <mat-select [value]="previewAs()" (selectionChange)="previewAs.set($event.value)">
+              <mat-option value="anonymous">Not signed in</mat-option><mat-option value="signedIn">Signed in, no role</mat-option>
+              @for (role of roles(); track role.id) { <mat-option [value]="role.id">{{ role.name }}</mat-option> }
+            </mat-select>
+          </mat-form-field>
+        }
+        <span class="muted">Live logic · unsaved draft</span>
+      </div>
+    } @else {
+      @if (store.editingComponent(); as component) {
+        <div class="component-banner" role="status"><mat-icon>widgets</mat-icon>
+          <div><strong>Editing component “{{ component.name }}”</strong>
+            <span>{{ editingUsedBy().length ? 'Used on ' + editingUsedBy().join(', ') + '. Saving a change moves these pages to “needs review”: publish this component, then check and publish each page.' : 'Not used on any page yet.' }}</span></div>
+          <button mat-stroked-button (click)="selectPage(store.project().pages[0].id)"><mat-icon>close</mat-icon>Done</button>
+        </div>
+      } @else {
+        <div class="canvas-caption"><span>{{ store.page().name }} · /{{ store.page().path }}</span><span>{{ store.viewport() }}</span></div>
+      }
+    }
+    <div [class]="'canvas viewport-' + store.viewport()" [class.edit-mode]="!store.preview()" (click)="store.selectedId.set('')">
+      @if (store.preview()) {
+        <site-renderer [project]="previewProject()" [path]="previewRoute()" [query]="previewQuery()" [draft]="true" [onNavigate]="navigateInPreview" [visitor]="previewVisitor()" />
+      } @else {
+        <block-tree [blocks]="store.page().blocks" />
+      }
+    </div>
+  </main>
+  @if (!store.preview()) {
+    <aside class="inspector-panel" aria-label="Element configuration">
+      @if (store.selected(); as block) {
+        <div class="inspector-heading"><h2>{{ block.name }}</h2><button mat-icon-button matTooltip="Duplicate" aria-label="Duplicate element" (click)="store.duplicate()"><mat-icon>content_copy</mat-icon></button><button mat-icon-button matTooltip="Delete" aria-label="Delete element" (click)="store.delete()"><mat-icon>delete_outline</mat-icon></button></div>
+        <mat-tab-group mat-stretch-tabs="false" class="dense-tabs">
+          <mat-tab label="Content"><div class="panel-content property-fields">
+            <mat-form-field appearance="outline"><mat-label>Element name</mat-label><input matInput [ngModel]="block.name" (ngModelChange)="patch('name', $event)"></mat-form-field>
+            @if (!isContainer(block.type) || block.type === 'modal') {
+              <mat-form-field appearance="outline"><mat-label>{{ ['countdown'].includes(block.type) ? 'Target date (YYYY-MM-DD)' : block.type === 'pagination' ? 'Total pages' : block.type === 'richtext' ? 'Text (Markdown)' : 'Text / placeholder' }}</mat-label><textarea matInput [rows]="['richtext', 'code'].includes(block.type) ? 8 : 3" [ngModel]="block.text" (ngModelChange)="patch('text', $event)"></textarea></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Label / caption</mat-label><input matInput [ngModel]="block.label" (ngModelChange)="patch('label', $event)"></mat-form-field>
+            }
+            @if (['image', 'video', 'audio', 'button', 'link', 'embed', 'avatar', 'hero'].includes(block.type)) {
+              <mat-form-field appearance="outline"><mat-label>{{ block.type === 'embed' ? 'YouTube, Vimeo, Maps or Docs link' : block.type === 'hero' ? 'Background image' : 'URL' }}</mat-label><input matInput [ngModel]="block.url" (ngModelChange)="patch('url', $event)">
+                @if (block.type !== 'embed') { <button mat-icon-button matSuffix matTooltip="Choose an uploaded file" aria-label="Choose an uploaded file" (click)="chooseFile('url')"><mat-icon>folder_open</mat-icon></button> }
+              </mat-form-field>
+            }
+            @if (block.type === 'image') { <mat-form-field appearance="outline"><mat-label>Alternative text</mat-label><input matInput [ngModel]="block.alt" (ngModelChange)="patch('alt', $event)"></mat-form-field> }
+            @if (block.type === 'gallery' || block.type === 'carousel') { <button mat-stroked-button (click)="chooseFile('options')"><mat-icon>add_photo_alternate</mat-icon>Add an uploaded image</button> }
+            @if (block.type === 'table') { <p class="muted">Merge cells: type <code>^^</code> to join a cell with the one above, <code>&lt;&lt;</code> to join it with the one on its left.</p> }
+            @if (['list', 'select', 'multiselect', 'radio', 'navigation', 'breadcrumb', 'tabs', 'accordion', 'table', 'gallery', 'carousel', 'chips', 'keyvalue', 'timeline', 'togglegroup', 'chart', 'stepper', 'menu'].includes(block.type)) { <mat-form-field appearance="outline"><mat-label>Items (one per line; | separates fields)</mat-label><textarea matInput rows="5" [ngModel]="block.options" (ngModelChange)="patch('options', $event)"></textarea><mat-hint>Or fill them from a flow on the Logic tab.</mat-hint></mat-form-field> }
+            @if (block.type === 'heading') { <mat-form-field appearance="outline"><mat-label>Heading level</mat-label><mat-select [ngModel]="block.level" (ngModelChange)="patch('level', $event)">@for (level of ['1','2','3','4','5','6']; track level) { <mat-option [value]="level">H{{ level }}</mat-option> }</mat-select></mat-form-field> }
+            @if (['columns', 'grid', 'repeater'].includes(block.type)) { <mat-form-field appearance="outline"><mat-label>Columns</mat-label><mat-select [ngModel]="block.columns" (ngModelChange)="patch('columns', $event)">@for (columns of [1,2,3,4]; track columns) { <mat-option [value]="columns">{{ columns }}</mat-option> }</mat-select></mat-form-field> }
+            @if (variants[block.type]; as variant) { <mat-form-field appearance="outline"><mat-label>{{ variant.label }}</mat-label><mat-select [ngModel]="block.inputType" (ngModelChange)="patch('inputType', $event)">@for (option of variant.options; track option) { <mat-option [value]="option">{{ option }}</mat-option> }</mat-select></mat-form-field> }
+            @if (['slider', 'progress', 'rating', 'stepper', 'pagination'].includes(block.type)) { <mat-form-field appearance="outline"><mat-label>{{ block.type === 'stepper' ? 'Current step' : block.type === 'pagination' ? 'Current page' : block.type === 'rating' ? 'Stars (0-5)' : 'Value (0-100)' }}</mat-label><input matInput type="number" min="0" max="100" [ngModel]="block.value" (ngModelChange)="patch('value', clampValue($event))"></mat-form-field> }
+            @if (['input', 'textarea', 'date', 'select', 'multiselect', 'checkbox', 'radio', 'number', 'file'].includes(block.type)) { <mat-checkbox [ngModel]="block.required" (ngModelChange)="patch('required', $event)">Required</mat-checkbox> }
+            @if (inputTypes.includes(block.type) || ['button', 'submit', 'menu', 'pagination'].includes(block.type)) { <mat-checkbox [ngModel]="block.disabled" (ngModelChange)="patch('disabled', $event)">Disabled</mat-checkbox> }
+            @if (inputTypes.includes(block.type) || block.type === 'modal' || block.type === 'pagination') {
+              <mat-slide-toggle [checked]="!!block.bind" (change)="setBind($event.checked)">{{ block.type === 'modal' ? 'Open when a variable is true' : 'Save the value in a variable' }}</mat-slide-toggle>
+              @if (block.bind; as bind) {
+                <div class="inline-fields">
+                  <mat-form-field appearance="outline"><mat-label>Kept for</mat-label><mat-select [value]="bind.scope" (selectionChange)="setBindField('scope', $event.value)"><mat-option value="vars">Visit</mat-option><mat-option value="session">Session</mat-option><mat-option value="local">Device</mat-option></mat-select></mat-form-field>
+                  <mat-form-field appearance="outline"><mat-label>Variable</mat-label><input matInput [value]="bind.name" (change)="setBindField('name', $any($event.target).value)"></mat-form-field>
+                </div>
+                <p class="muted">Other blocks and flows can use <code>{{ bind.scope }}.{{ bind.name }}</code>.</p>
+              }
+            }
+            <mat-form-field appearance="outline"><mat-label>Move into</mat-label><mat-select (selectionChange)="moveTo($event.value)"><mat-option value="root">Page root</mat-option>@for (destination of destinations(); track destination.id) { <mat-option [value]="destination.id">{{ destination.name }}</mat-option> }</mat-select></mat-form-field>
+          </div></mat-tab>
+          <mat-tab label="Logic"><div class="panel-content property-fields">
+            @if (store.project().auth?.enabled) {
+              <mat-form-field appearance="outline"><mat-label>Who can see this block</mat-label>
+                <mat-select multiple [value]="accessChoice(block.access)" (selectionChange)="setBlockAccess($event.value)">
+                  <mat-option value="public">Everyone</mat-option><mat-option value="signedIn">Anyone signed in</mat-option>
+                  @for (role of roles(); track role.id) { <mat-option [value]="role.id">{{ role.name }}</mat-option> }
+                </mat-select>
+                <mat-hint>Hidden blocks are removed by the server, not just hidden.</mat-hint>
+              </mat-form-field>
+            }
+            <mat-form-field appearance="outline"><mat-label>Data from flow</mat-label>
+              <mat-select [value]="block.source ?? ''" (selectionChange)="patch('source', $event.value || undefined)"><mat-option value="">None</mat-option>@for (flow of store.project().flows; track flow.id) { <mat-option [value]="flow.id">{{ flow.name }}</mat-option> }</mat-select>
+              <mat-hint>Shows a skeleton while loading; the result is <code>data</code>.</mat-hint>
+            </mat-form-field>
+            @if (!block.source) { <button mat-button (click)="createFlowFor('source')"><mat-icon>add</mat-icon>Create a data flow</button> }
+            @if (block.source) {
+              <mat-form-field appearance="outline"><mat-label>Message when there's no data</mat-label><input matInput [ngModel]="block.emptyText ?? ''" (ngModelChange)="patch('emptyText', $event || undefined)" placeholder="Nothing to show yet."></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Message when loading fails</mat-label><input matInput [ngModel]="block.errorText ?? ''" (ngModelChange)="patch('errorText', $event || undefined)" placeholder="Something went wrong."></mat-form-field>
+            }
+            @if (block.type === 'repeater') { <p class="muted">Children repeat once per item. Inside, use <code>item</code> (the current item) and <code>index</code>.</p> }
+            @for (binding of bindings; track binding.key) {
+              <logic-field [label]="binding.label" [hint]="binding.hint" [value]="$any(block.logic)?.[binding.key]" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic(binding.key, $event)" />
+            }
+          </div></mat-tab>
+          @if (block.type === 'datatable' || block.type === 'treelist') {
+            @let t = block.table;
+            @if (t) {
+            <mat-tab label="Table"><div class="panel-content property-fields">
+              <h3 class="panel-title">Columns</h3>
+              @for (column of t.columns; track $index; let i = $index) {
+                <mat-expansion-panel class="column-panel">
+                  <mat-expansion-panel-header><mat-panel-title><mat-icon class="fx-badge">view_column</mat-icon>{{ column.label || column.key }}</mat-panel-title><mat-panel-description>{{ column.format }}</mat-panel-description></mat-expansion-panel-header>
+                  <div class="property-fields">
+                    <div class="inline-fields">
+                      <mat-form-field appearance="outline"><mat-label>Label</mat-label><input matInput [value]="column.label" (change)="setColumn(i, { label: $any($event.target).value })"></mat-form-field>
+                      <mat-form-field appearance="outline"><mat-label>Field</mat-label><input matInput [value]="column.key" (change)="setColumn(i, { key: $any($event.target).value })"><mat-hint>e.g. name or address.city</mat-hint></mat-form-field>
+                    </div>
+                    <div class="inline-fields">
+                      <mat-form-field appearance="outline"><mat-label>Show as</mat-label><mat-select [value]="column.format" (selectionChange)="setColumn(i, { format: $event.value })">@for (format of columnFormats; track format) { <mat-option [value]="format">{{ format }}</mat-option> }</mat-select></mat-form-field>
+                      <mat-form-field appearance="outline"><mat-label>Align</mat-label><mat-select [value]="column.align ?? 'start'" (selectionChange)="setColumn(i, { align: $event.value })"><mat-option value="start">Left</mat-option><mat-option value="center">Center</mat-option><mat-option value="end">Right</mat-option></mat-select></mat-form-field>
+                    </div>
+                    <div class="inline-fields">
+                      <mat-form-field appearance="outline"><mat-label>Width</mat-label><input matInput placeholder="auto, 120px, 20%" [value]="column.width ?? ''" (change)="setColumn(i, { width: $any($event.target).value })"></mat-form-field>
+                      @if (column.format === 'currency') { <mat-form-field appearance="outline"><mat-label>Currency</mat-label><input matInput placeholder="INR" [value]="column.currency ?? ''" (change)="setColumn(i, { currency: $any($event.target).value })"></mat-form-field> }
+                    </div>
+                    <mat-slide-toggle [checked]="column.sortable" (change)="setColumn(i, { sortable: $event.checked })">Can sort by this column</mat-slide-toggle>
+                    <mat-slide-toggle [checked]="column.filterable" (change)="setColumn(i, { filterable: $event.checked })">Search looks in this column</mat-slide-toggle>
+                    <mat-slide-toggle [checked]="!!column.mergeRepeated" (change)="setColumn(i, { mergeRepeated: $event.checked || undefined })">Merge repeated values into one cell</mat-slide-toggle>
+                    <mat-form-field appearance="outline"><mat-label>Header group</mat-label><input matInput placeholder="e.g. Term 1" [value]="column.group ?? ''" (change)="setColumn(i, { group: $any($event.target).value })"><mat-hint>Columns next to each other with the same group share a header</mat-hint></mat-form-field>
+                    <logic-field label="Calculate the cell" hint="Optional. Use row, e.g. row.fee × 12 or join text row.first + row.last." [value]="column.cell" [variables]="variables().concat(['row'])" [sample]="sample()" (valueChange)="setColumn(i, { cell: $event })" />
+                    <div class="qb-actions">
+                      <button mat-icon-button aria-label="Move column left" (click)="moveColumn(i, -1)"><mat-icon>arrow_upward</mat-icon></button>
+                      <button mat-icon-button aria-label="Move column right" (click)="moveColumn(i, 1)"><mat-icon>arrow_downward</mat-icon></button>
+                      <span class="toolbar-spacer"></span>
+                      <button mat-button (click)="removeColumn(i)"><mat-icon>delete_outline</mat-icon>Remove</button>
+                    </div>
+                  </div>
+                </mat-expansion-panel>
+              }
+              <div class="qb-actions"><button mat-stroked-button (click)="addColumn()"><mat-icon>add</mat-icon>Add column</button><button mat-button (click)="detectColumns()"><mat-icon>auto_awesome</mat-icon>Detect from sample rows</button></div>
+
+              <h3 class="panel-title">Rows</h3>
+              <mat-form-field appearance="outline"><mat-label>Unique field</mat-label><input matInput [value]="t.rowKey" (change)="setTable({ rowKey: $any($event.target).value })"><mat-hint>Identifies each row, usually id</mat-hint></mat-form-field>
+              @if (block.type === 'datatable') { <mat-form-field appearance="outline"><mat-label>Group rows by field</mat-label><input matInput placeholder="e.g. grade" [value]="t.groupBy ?? ''" (change)="setTable({ groupBy: $any($event.target).value })"><mat-hint>Adds a heading row per value, with a count</mat-hint></mat-form-field> }
+              @if (block.type === 'treelist') {
+                <mat-form-field appearance="outline"><mat-label>Children are in field</mat-label><input matInput placeholder="children" [value]="t.childrenKey ?? ''" (change)="setTable({ childrenKey: $any($event.target).value })"></mat-form-field>
+                <mat-form-field appearance="outline"><mat-label>…or parent is in field</mat-label><input matInput placeholder="parent_id" [value]="t.parentKey ?? ''" (change)="setTable({ parentKey: $any($event.target).value })"><mat-hint>For flat lists where each row points to its parent</mat-hint></mat-form-field>
+                <mat-form-field appearance="outline"><mat-label>Load children when opened with</mat-label>
+                  <mat-select [value]="t.lazyFlow ?? ''" (selectionChange)="setTable({ lazyFlow: $event.value })"><mat-option value="">Nothing (children are in the data)</mat-option>@for (flow of store.project().flows; track flow.id) { <mat-option [value]="flow.id">{{ flow.name }}</mat-option> }</mat-select>
+                  <mat-hint>The flow gets the opened row as input.item</mat-hint>
+                </mat-form-field>
+              } @else {
+                <mat-form-field appearance="outline"><mat-label>Paging</mat-label>
+                  <mat-select [value]="t.pagination" (selectionChange)="setTable({ pagination: $event.value })">
+                    <mat-option value="pages">Pages with next/previous</mat-option><mat-option value="loadMore">“Load more” button</mat-option><mat-option value="infinite">Infinite scroll</mat-option><mat-option value="virtual">Virtual scroll (very long lists)</mat-option><mat-option value="none">Show all rows</mat-option>
+                  </mat-select>
+                </mat-form-field>
+                <mat-form-field appearance="outline"><mat-label>Rows per page</mat-label><input matInput type="number" min="1" max="500" [value]="t.pageSize" (change)="setTable({ pageSize: +$any($event.target).value || 10 })"></mat-form-field>
+                <mat-slide-toggle [checked]="t.search" (change)="setTable({ search: $event.checked })">Show a search box</mat-slide-toggle>
+                <mat-slide-toggle [checked]="t.serverSide" [disabled]="!block.source" (change)="setTable({ serverSide: $event.checked, stateVar: $event.checked ? (t.stateVar || 'tableState') : t.stateVar })">Page, sort and search on the server</mat-slide-toggle>
+                @if (!block.source) { <p class="muted">Connect a data flow on the Logic tab to page on the server.</p> }
+                @if (t.serverSide) {
+                  <mat-form-field appearance="outline"><mat-label>State variable</mat-label><input matInput [value]="t.stateVar ?? ''" (change)="setTable({ stateVar: $any($event.target).value })"></mat-form-field>
+                  <p class="muted">The data flow gets <code>vars.{{ t.stateVar }}.page</code>, <code>.pageSize</code>, <code>.sort</code>, <code>.direction</code> and <code>.search</code>. Use them in the query's limit, skip, sort and filters, and return <code>{{ '{' }} rows, total {{ '}' }}</code>.</p>
+                }
+              }
+              <mat-form-field appearance="outline"><mat-label>Selecting rows</mat-label><mat-select [value]="t.selection" (selectionChange)="setTable({ selection: $event.value, selectionVar: $event.value !== 'none' ? (t.selectionVar || 'selectedRows') : t.selectionVar })"><mat-option value="none">Off</mat-option><mat-option value="single">One row</mat-option><mat-option value="multiple">Many rows</mat-option></mat-select></mat-form-field>
+              @if (t.selection !== 'none') { <mat-form-field appearance="outline"><mat-label>Save selection in variable</mat-label><input matInput [value]="t.selectionVar ?? ''" (change)="setTable({ selectionVar: $any($event.target).value })"></mat-form-field> }
+              <h3 class="panel-title">Look</h3>
+              <mat-slide-toggle [checked]="t.dense" (change)="setTable({ dense: $event.checked })">Compact rows</mat-slide-toggle>
+              <mat-slide-toggle [checked]="t.striped" (change)="setTable({ striped: $event.checked })">Striped rows</mat-slide-toggle>
+              <mat-slide-toggle [checked]="t.stickyHeader" (change)="setTable({ stickyHeader: $event.checked })">Keep header visible when scrolling</mat-slide-toggle>
+            </div></mat-tab>
+            }
+          }
+          <mat-tab label="Events"><div class="panel-content property-fields">
+            <p class="muted">Choose what happens on each event. Each runs its own flow, and <code>event.value</code>, <code>event.item</code>, <code>event.form</code> are available to its logic.</p>
+            @for (event of events; track event.key) {
+              <div class="event-row">
+                <mat-form-field appearance="outline"><mat-label>{{ event.label }}</mat-label>
+                  <mat-select [value]="$any(block.on)?.[event.key] ?? ''" (selectionChange)="setEvent(event.key, $event.value)"><mat-option value="">Do nothing</mat-option>@for (flow of store.project().flows; track flow.id) { <mat-option [value]="flow.id">Run “{{ flow.name }}”</mat-option> }</mat-select>
+                  @if (event.hint) { <mat-hint>{{ event.hint }}</mat-hint> }
+                </mat-form-field>
+                @if ($any(block.on)?.[event.key]; as flowId) { <button mat-icon-button matTooltip="Edit flow" aria-label="Edit flow" (click)="openFlow(flowId)"><mat-icon>edit</mat-icon></button> }
+                @else { <button mat-icon-button matTooltip="Create a flow for this event" aria-label="Create flow" (click)="createFlowFor(event.key)"><mat-icon>add_circle_outline</mat-icon></button> }
+              </div>
+            }
+          </div></mat-tab>
+          <mat-tab label="Styles"><div class="panel-content property-fields">
+            <mat-form-field appearance="outline"><mat-label>Override scope</mat-label><mat-select [ngModel]="styleScope()" (ngModelChange)="styleScope.set($event)"><mat-option value="styles">All screens</mat-option><mat-option value="tabletStyles">Tablet and smaller</mat-option><mat-option value="mobileStyles">Mobile</mat-option></mat-select></mat-form-field>
+            <mat-form-field appearance="outline"><mat-label>CSS property</mat-label><mat-select [ngModel]="styleProperty()" (ngModelChange)="styleProperty.set($event)">@for (property of styleProperties; track property) { <mat-option [value]="property">{{ property }}</mat-option> }</mat-select></mat-form-field>
+            <mat-form-field appearance="outline"><mat-label>CSS value</mat-label><input matInput [ngModel]="styleValue()" (ngModelChange)="styleValue.set($event)" (keydown.enter)="applyStyle()"></mat-form-field>
+            <button mat-flat-button (click)="applyStyle()"><mat-icon>add</mat-icon>Apply override</button>
+            @for (entry of entries(currentStyles()); track entry[0]) { <div class="style-entry"><code>{{ entry[0] }}: {{ entry[1] }}</code><button mat-icon-button [attr.aria-label]="'Remove ' + entry[0]" (click)="removeStyle(entry[0])"><mat-icon>close</mat-icon></button></div> }
+            <button mat-button (click)="resetStyles()"><mat-icon>restart_alt</mat-icon>Reset to theme</button>
+          </div></mat-tab>
+        </mat-tab-group>
+      } @else {
+        <div class="inspector-empty"><mat-icon>touch_app</mat-icon><h2>No element selected</h2><p class="muted">Pick a block on the canvas to edit its content, logic, events and styles.</p></div>
+      }
+    </aside>
+  }
+</div>
+<nav class="mobile-nav" aria-label="Builder views">
+  <button type="button" [class.active]="panel() === 'library'" (click)="panel.set('library')"><mat-icon>widgets</mat-icon><span>Blocks</span></button>
+  <button type="button" [class.active]="panel() === 'canvas'" (click)="panel.set('canvas')"><mat-icon>web</mat-icon><span>Page</span></button>
+  <button type="button" [class.active]="panel() === 'inspector'" (click)="panel.set('inspector')"><mat-icon>tune</mat-icon><span>Properties</span>@if (store.selected()) { <span class="nav-dot"></span> }</button>
+</nav>
+}

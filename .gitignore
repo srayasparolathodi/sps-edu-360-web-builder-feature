@@ -11,3 +11,7 @@ dist
 registry/.env
 .wrangler
 *.tsbuildinfo
+.dev.vars
+.dev.vars.*
+.playwright-mcp
+!.dev.vars.example

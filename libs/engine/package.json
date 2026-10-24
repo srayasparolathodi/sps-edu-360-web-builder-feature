@@ -1,0 +1,21 @@
+{
+  "name": "@spsedu360/engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Engines shared by the Page Studio app and API: JSON Logic, flows, retries and circuit breakers, JSON-to-SQL queries, access rules, publishing, and the project model.",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "lint": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "json-logic-engine": "^5.0.7"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.5"
+  }
+}

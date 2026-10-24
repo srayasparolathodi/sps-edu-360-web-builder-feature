@@ -1,0 +1,57 @@
+@let b = block();
+@let v = view();
+@if (v.visible) {
+  @if (v.status === 'running' && !((b.type === 'datatable' || b.type === 'treelist') && b.table?.serverSide)) {
+    <!-- Skeleton until the block's data source finishes loading. -->
+    <div class="skeleton-block" [attr.aria-busy]="true" aria-live="polite" [attr.aria-label]="'Loading ' + b.name">
+      @if (['image', 'video', 'embed', 'carousel', 'hero', 'gallery'].includes(b.type)) { <div class="skeleton skeleton-media"></div> }
+      @else { @for (row of skeletonRows(); track row) { <div class="skeleton skeleton-line" [style.width.%]="100 - row * 12"></div> } }
+    </div>
+  } @else if (v.status === 'error') {
+    <div class="state-card state-error" role="alert">
+      <mat-icon>cloud_off</mat-icon>
+      <div><strong>Couldn't load {{ b.name }}</strong><span>{{ v.message }}</span></div>
+      <button mat-stroked-button type="button" (click)="retry(); $event.stopPropagation()"><mat-icon>refresh</mat-icon>Retry</button>
+    </div>
+  } @else if (v.status === 'empty' && b.type !== 'repeater' && b.type !== 'datatable' && b.type !== 'treelist') {
+    <div class="state-card state-empty" role="status"><mat-icon>inbox</mat-icon><span>{{ v.message }}</span></div>
+  } @else if (isContainer()) {
+    @switch (b.type) {
+      @case ('form') {
+        <form [class]="className()" (submit)="submit($event)" novalidate><live-blocks [blocks]="b.children" [scope]="scope()" /></form>
+      }
+      @case ('repeater') {
+        <div [class]="className()">
+          @for (item of v.list; track $index) {
+            <div class="repeater-item"><live-blocks [blocks]="b.children" [scope]="repeaterScope(item, $index)" /></div>
+          } @empty {
+            <div class="state-card state-empty" role="status"><mat-icon>inbox</mat-icon><span>{{ b.emptyText || v.message || 'Nothing to show yet.' }}</span></div>
+          }
+        </div>
+      }
+      @case ('modal') {
+        @if (modalOpen()) {
+          <div class="modal-backdrop" (click)="closeModal()">
+            <div [class]="className() + ' modal-panel'" role="dialog" aria-modal="true" [attr.aria-label]="v.label" (click)="$event.stopPropagation()">
+              @if (b.bind) { <button mat-icon-button class="modal-close" type="button" aria-label="Close" (click)="closeModal()"><mat-icon>close</mat-icon></button> }
+              <live-blocks [blocks]="b.children" [scope]="scope()" />
+            </div>
+          </div>
+        }
+      }
+      @case ('hero') {
+        <section [class]="className()" [style.background-image]="heroImage()"><div class="hero-inner"><live-blocks [blocks]="b.children" [scope]="scope()" /></div></section>
+      }
+      @case ('header') { <header [class]="className()"><live-blocks [blocks]="b.children" [scope]="scope()" /></header> }
+      @case ('footer') { <footer [class]="className()"><live-blocks [blocks]="b.children" [scope]="scope()" /></footer> }
+      @default { <section [class]="className()"><live-blocks [blocks]="b.children" [scope]="scope()" /></section> }
+    }
+  } @else {
+    <div [class]="className()">
+      <block-content [block]="b" [view]="v" [live]="true" [now]="runtime.now()" (valueChange)="setValue($event)" (blockEvent)="onEvent($event)" (navigate)="runtime.navigate($event)" />
+    </div>
+  }
+  @if (v.errors.length) {
+    <div class="logic-warning" role="note"><mat-icon>error_outline</mat-icon>{{ v.errors[0] }}</div>
+  }
+}

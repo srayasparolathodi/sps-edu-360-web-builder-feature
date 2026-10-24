@@ -3,15 +3,36 @@
   // Must match the Worker name in the Cloudflare dashboard.
   "name": "sps-edu-360-web-builder-feature",
   "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Backend: API, server flows, storage (Neon/KV), credentials (OpenBao), Upstash.
+  "main": "./api/web-builder-api/src/index.ts",
   // Builds the Angular app before every `wrangler deploy`, so Workers Builds
   // only needs the default deploy command (`npx wrangler deploy`).
   "build": {
     "command": "pnpm build:web-builder"
   },
-  // Static-assets-only Worker: serves the Angular build output, with unknown
-  // paths falling back to index.html for client-side routing.
+  // Static files are served directly (free, no Worker request); only /api/*
+  // runs the Worker. Unknown paths fall back to index.html for the Angular router.
   "assets": {
     "directory": "./apps/web-builder/dist/browser",
-    "not_found_handling": "single-page-application"
-  }
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // Fallback storage when DATABASE_URL (Neon) is not set. Created automatically on first deploy.
+  "kv_namespaces": [{ "binding": "PROJECTS" }],
+  // Settings reach the Worker as `env` (see api/web-builder-api/src/index.ts, `Env`).
+  // Non-secret values that are the same everywhere live here and are deployed with the code.
+  // Secrets (DATABASE_URL, tokens, keys) are set in the dashboard or with
+  // `npx wrangler secret put NAME`, never here. Full list: .dev.vars.example.
+  "vars": {
+    // OpenBao KV v2 mount used for credentials (OPENBAO_ADDR / OPENBAO_TOKEN are secrets).
+    "OPENBAO_MOUNT": "secret",
+    // Bucket for uploaded files and images.
+    "S3_BUCKET": "web-bulder-config-s3"
+  },
+  // Keep variables added in the dashboard (Settings → Variables and Secrets) when deploying;
+  // without this, every deploy removes plain-text variables that are not listed above.
+  "keep_vars": true,
+  "observability": { "enabled": true }
 }
