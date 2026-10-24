@@ -173,9 +173,11 @@ export class BuilderPage {
   readonly pathError = computed(() => pathProblem(this.store.page().path))
   readonly liveUrl = computed(() => {
     const slug = this.store.summary()?.slug
+    // Published apps open on the apps Worker (no Cloudflare Access), not the builder's address.
+    const origin = this.api.sitesOrigin() || this.document.location.origin
     return slug
-      ? siteUrl(this.document.location.origin, slug)
-      : `${this.document.location.origin}/site/${this.store.project().id}`
+      ? siteUrl(origin, slug)
+      : `${origin}/site/${this.store.project().id}`
   })
   readonly saveState = computed(() =>
     this.store.saving()

@@ -29,10 +29,36 @@
     // OpenBao KV v2 mount used for credentials (OPENBAO_ADDR / OPENBAO_TOKEN are secrets).
     "OPENBAO_MOUNT": "secret",
     // Bucket for uploaded files and images.
-    "S3_BUCKET": "web-bulder-config-s3"
+    "S3_BUCKET": "web-bulder-config-s3",
+    // Published apps are served by the "apps" Worker below (no Cloudflare Access), at this address.
+    "SITES_ORIGIN": "https://sps-edu-360-apps.srayas-parolathodi.workers.dev"
   },
   // Keep variables added in the dashboard (Settings → Variables and Secrets) when deploying;
   // without this, every deploy removes plain-text variables that are not listed above.
   "keep_vars": true,
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+
+  // Second Worker, same code: serves only published apps to end users (students, parents, staff),
+  // who sign in per app with Better Auth instead of Cloudflare Access. Deploy with
+  // `npx wrangler deploy --env apps`; give it the same secrets (`wrangler secret bulk --env apps`),
+  // except CF_ACCESS_* and ADMIN_TOKEN, which it does not use.
+  "env": {
+    "apps": {
+      "name": "sps-edu-360-apps",
+      "vars": {
+        "APP_MODE": "sites",
+        "OPENBAO_MOUNT": "secret",
+        "S3_BUCKET": "web-bulder-config-s3",
+        "SITES_ORIGIN": "https://sps-edu-360-apps.srayas-parolathodi.workers.dev"
+      },
+      "kv_namespaces": [{ "binding": "PROJECTS" }],
+      "assets": {
+        "directory": "./apps/web-builder/dist/browser",
+        "binding": "ASSETS",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": ["/api/*"]
+      },
+      "observability": { "enabled": true }
+    }
+  }
 }

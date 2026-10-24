@@ -94,6 +94,13 @@ export interface Env {
   UPSTASH_REDIS_REST_TOKEN?: string
   /** QStash region endpoint from the Upstash console; defaults to https://qstash.upstash.io. */
   QSTASH_URL?: string
+  /**
+   * "sites" on the Worker that serves published apps to end users (no Cloudflare Access in front):
+   * only app, sign-in, file and queue routes answer there. The builder Worker leaves it unset.
+   */
+  APP_MODE?: string
+  /** Address of the Worker serving published apps, e.g. https://sps-edu-360-apps.<you>.workers.dev. */
+  SITES_ORIGIN?: string
   /** Cloudflare Access service token that QStash sends, so its calls get past Access. */
   CF_ACCESS_CLIENT_ID?: string
   CF_ACCESS_CLIENT_SECRET?: string
@@ -111,6 +118,14 @@ export interface Env {
 }
 
 const MAX_BODY = 2_000_000
+/** Routes the apps Worker answers; everything else belongs to the builder. */
+const SITE_ROUTES = new Set(['health', 'sites', 's', 'auth', 'files', 'queue'])
+
+/** Where published apps are served: the apps Worker, or this Worker when there is none. */
+const appsOrigin = (env: Env, url: URL): string =>
+  typeof env.SITES_ORIGIN === 'string' && /^https?:\/\//.test(env.SITES_ORIGIN)
+    ? env.SITES_ORIGIN.replace(/\/+$/, '')
+    : url.origin
 /** A 10 MB file as a base64 data URL, plus the request around it. */
 const MAX_FILE_BODY = 14_500_000
 /** Origins whose bucket CORS rule was checked in this isolate. */
@@ -292,9 +307,14 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
   try {
     const store: ProjectStore | null = createStore(env)
     const secrets = createSecrets(env, store)
+    const sitesOnly = env.APP_MODE === 'sites'
+    if (sitesOnly && !SITE_ROUTES.has(parts[0] ?? ''))
+      throw new HttpError(404, 'This address only serves published apps.')
     if (parts[0] === 'health' && method === 'GET')
       return json({
         ok: true,
+        mode: sitesOnly ? 'sites' : 'builder',
+        sitesOrigin: appsOrigin(env, url),
         storage: !!store,
         database: store?.kind ?? 'none',
         secrets: secrets.kind,
@@ -401,9 +421,12 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         if (method === 'DELETE') {
           await store.remove(id)
           await cacheSite(platform.redis, id, null)
-          await syncSchedules(platform.queue, url.origin, null, id).catch(
-            () => [],
-          )
+          await syncSchedules(
+            platform.queue,
+            appsOrigin(env, url),
+            null,
+            id,
+          ).catch(() => [])
           return json({ ok: true })
         }
       }
@@ -452,9 +475,10 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
             ? (await publishEntity(store, draft, kind, entityId, user.id)).site
             : await unpublishEntity(store, draft, kind, entityId)
         await cacheSite(platform.redis, id, site)
+        // Scheduled runs call the apps Worker, which has no Cloudflare Access in front of it.
         const schedules = await syncSchedules(
           platform.queue,
-          url.origin,
+          appsOrigin(env, url),
           site,
           id,
         ).catch((error) => {
@@ -465,7 +489,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         return json({
           ...summary,
           slug,
-          url: `${url.origin}/${slug}`,
+          url: `${appsOrigin(env, url)}/${slug}`,
           live: !!site,
           schedules: schedules.length,
           statuses: await statuses(draft, await store.listEntityVersions(id)),

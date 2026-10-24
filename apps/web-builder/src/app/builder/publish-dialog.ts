@@ -218,7 +218,8 @@ const STATE_LABEL: Record<EntityState, string> = {
 export class PublishDialog {
   private readonly api = inject(ApiService)
   readonly store = inject<PublishDialogData>(MAT_DIALOG_DATA).store
-  readonly origin = inject(DOCUMENT).location.origin
+  /** Published apps open on the apps Worker (no Cloudflare Access), not the builder's address. */
+  readonly origin = this.api.sitesOrigin() || inject(DOCUMENT).location.origin
   readonly statuses = signal<EntityStatus[] | null>(null)
   readonly busy = signal(false)
   readonly error = signal('')

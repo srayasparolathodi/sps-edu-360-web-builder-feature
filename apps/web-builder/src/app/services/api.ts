@@ -121,6 +121,12 @@ export class ApiService {
   /** How the builder signs people in: Cloudflare Access, an admin token, or not set up. */
   readonly builderAuth = signal<'access' | 'token' | 'none'>('none')
   readonly siteAuth = signal(false)
+  /** builder: this Worker hosts the builder; sites: it only serves published apps. */
+  readonly serverMode = signal<'builder' | 'sites'>('builder')
+  /** Where published apps open, e.g. the apps Worker's address. */
+  readonly sitesOrigin = signal(
+    typeof location === 'undefined' ? '' : location.origin,
+  )
   /** The signed-in builder user. */
   readonly user = signal<BuilderUser | null>(null)
   readonly token = signal(readStorage(TOKEN_KEY) ?? '')
@@ -162,7 +168,14 @@ export class ApiService {
       const extra = health as {
         builderAuth?: 'access' | 'token' | 'none'
         siteAuth?: boolean
+        mode?: 'builder' | 'sites'
+        sitesOrigin?: string
       }
+      this.serverMode.set(extra.mode ?? 'builder')
+      this.sitesOrigin.set(extra.sitesOrigin || location.origin)
+      // The apps Worker has no builder: nothing to sign in to here.
+      if (extra.mode === 'sites')
+        return this.useLocal('This address only serves published apps.')
       this.builderAuth.set(extra.builderAuth ?? 'none')
       this.siteAuth.set(!!extra.siteAuth)
       if (!health.storage)

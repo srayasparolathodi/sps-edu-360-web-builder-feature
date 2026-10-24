@@ -867,3 +867,44 @@ describe('saved APIs and journey file uploads', () => {
     )
   })
 })
+
+describe('builder Worker and apps Worker', () => {
+  it('serves only published apps in "sites" mode, so end users never meet the builder', async () => {
+    const project = createProject(
+      `Split App ${Math.random().toString(36).slice(2, 7)}`,
+    )
+    await call(`/api/projects/${project.id}`, {
+      method: 'PUT',
+      admin: true,
+      body: JSON.stringify(project),
+    })
+    await publishAll(project)
+    env.APP_MODE = 'sites'
+    expect(await (await call('/api/health')).json()).toMatchObject({
+      mode: 'sites',
+    })
+    expect((await call('/api/projects', { admin: true })).status).toBe(404)
+    expect((await call('/api/users', { admin: true })).status).toBe(404)
+    expect((await call(`/api/sites/${project.id}`)).status).toBe(200)
+  })
+
+  it("gives live links on the apps Worker's address", async () => {
+    env.SITES_ORIGIN = 'https://apps.example.workers.dev/'
+    const project = createProject(
+      `Link App ${Math.random().toString(36).slice(2, 7)}`,
+    )
+    await call(`/api/projects/${project.id}`, {
+      method: 'PUT',
+      admin: true,
+      body: JSON.stringify(project),
+    })
+    const published = await (await publishAll(project)).json()
+    expect(published.url).toMatch(
+      /^https:\/\/apps\.example\.workers\.dev\/link-app-/,
+    )
+    expect(await (await call('/api/health')).json()).toMatchObject({
+      mode: 'builder',
+      sitesOrigin: 'https://apps.example.workers.dev',
+    })
+  })
+})

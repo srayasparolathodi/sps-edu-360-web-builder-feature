@@ -14,7 +14,7 @@
     "prepare": "husky",
     "dev:web-builder": "node scripts/dev-web-builder.mjs",
     "build:web-builder": "pnpm --filter @spsedu360/web-builder build",
-    "deploy:web-builder": "pnpm build:web-builder && wrangler deploy",
+    "deploy:web-builder": "npx wrangler deploy && npx wrangler deploy --env apps",
     "test:web-builder": "pnpm --filter @spsedu360/web-builder --filter @spsedu360/web-builder-api --filter @spsedu360/engine test"
   },
   "keywords": [],

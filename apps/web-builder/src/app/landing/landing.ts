@@ -39,6 +39,12 @@ export class LandingPage {
   private readonly router = inject(Router)
   private readonly snack = inject(MatSnackBar)
   private readonly dialog = inject(MatDialog)
+  liveUrl(project: ProjectSummary): string {
+    const origin = this.api.sitesOrigin() || location.origin
+    return project.slug
+      ? `${origin}/${project.slug}`
+      : `${origin}/site/${project.id}`
+  }
   readonly isAdmin = computed(() => this.api.user()?.role === 'admin')
   /** Authors build one app in the cloud; it can hold any number of pages, journeys and versions. */
   readonly atLimit = computed(

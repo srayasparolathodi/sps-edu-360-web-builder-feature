@@ -318,7 +318,7 @@
               } @empty { <p class="muted">This component has no inputs. Add them on the Components tab.</p> }
               @if (component.outputs?.length) {
                 <h3 class="panel-title">When the component reports…</h3>
-                @for (output of component.outputs ?? []; track output.name) {
+                @for (output of component.outputs; track output.name) {
                   <mat-form-field appearance="outline"><mat-label>{{ output.label || output.name }}</mat-label>
                     <mat-select [value]="$any(block.outputs)?.[output.name] ?? ''" (selectionChange)="setOutputFlow(output.name, $event.value)"><mat-option value="">Do nothing</mat-option>@for (flow of store.project().flows; track flow.id) { <mat-option [value]="flow.id">{{ flow.name }}</mat-option> }</mat-select>
                     <mat-hint>The journey gets event.value (this placement's inputs).</mat-hint>
