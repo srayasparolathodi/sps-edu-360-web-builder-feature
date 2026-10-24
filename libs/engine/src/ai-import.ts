@@ -1862,9 +1862,12 @@ not different content.
 # Theme and layout
 - Fix a palette before writing: primary, accent, page background, alternate section background, text and muted text.
   Use exactly these hex values everywhere. Set "dark": true only for a dark site.
-- Fonts cannot be chosen (the app has one sans-serif font) and there is no app-wide theme: show the source's character with
-  font-size, font-weight and colours in "styles", and keep repeated parts (header, footer, page banner, cards used in many places)
-  in components so their styles live in one place.
+- There is no app-wide theme and no web fonts beyond the app's sans-serif (font-family may name fonts installed on devices,
+  e.g. Georgia, serif): show the source's character with "styles" on each block (colours, sizes, weights, spacing, borders),
+  and keep repeated parts (header, footer, page banner, cards used in many places) in components so their styles live in one place.
+- Every block follows its own styles: links, menus and buttons take their colour, background, padding, border and radius from
+  "styles"; an image with a "height" is cropped to fill it ("object-fit"). Containers stack their children vertically unless
+  "flex-direction": "row" is set; give rows "flex-wrap": "wrap" and grids "grid-template-columns" for an exact column layout.
 - When the source has a logo, the header shows it as an "image" about 48-64px high, next to the site name if the source shows one.
 - Each band is a full-width "section" (padding about 64-96px top and bottom on desktop, 40-56px on mobile) with alternating
   backgrounds; its content sits in a "container" or "stack" with "max-width": "1200px" and "margin": "0 auto".

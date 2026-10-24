@@ -623,6 +623,38 @@ export const STYLE_PROPERTIES = [
   'grid-template-columns',
   'box-shadow',
   'opacity',
+  'min-width',
+  'max-height',
+  'margin-top',
+  'margin-bottom',
+  'padding-top',
+  'padding-bottom',
+  'flex-wrap',
+  'flex',
+  'align-self',
+  'justify-self',
+  'row-gap',
+  'column-gap',
+  'grid-template-rows',
+  'grid-column',
+  'grid-row',
+  'font-family',
+  'font-style',
+  'line-height',
+  'letter-spacing',
+  'text-transform',
+  'text-decoration',
+  'white-space',
+  'background',
+  'border-color',
+  'border-top',
+  'border-bottom',
+  'border-left',
+  'border-right',
+  'overflow',
+  'aspect-ratio',
+  'object-fit',
+  'object-position',
 ] as const
 
 export function isContainer(type: BlockType): boolean {
@@ -915,7 +947,13 @@ export function blockCss(block: Block): string {
       .filter(([property, value]) => safeStyle(property, value))
       .map(([property, value]) => `${property}:${value}`)
       .join(';')
-  const selector = `.element-${block.id}`
+  // Buttons draw their own surface, so their styles go on the button itself: the exported
+  // <a>/<button>, or the Material button inside the editor/live wrapper (specific enough to
+  // win over Material's own colour, shape and size).
+  const selector =
+    block.type === 'button' || block.type === 'submit'
+      ? `.element-${block.id}:is(a,button),.page-block.element-${block.id} :is(a.mat-mdc-button-base,button.mat-mdc-button-base)`
+      : `.element-${block.id}`
   const base = `${selector}{${declarations(block.styles)}}`
   const tablet = `@media(max-width:1024px){${selector}{${declarations(block.tabletStyles)}}}@container page-surface (max-width:1024px){${selector}{${declarations(block.tabletStyles)}}}`
   const mobile = `@media(max-width:600px){${selector}{${declarations(block.mobileStyles)}}}@container page-surface (max-width:600px){${selector}{${declarations(block.mobileStyles)}}}`

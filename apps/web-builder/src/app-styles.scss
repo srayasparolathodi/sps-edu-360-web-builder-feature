@@ -171,9 +171,10 @@ html.dark-theme .alert.tone-warning { background: #3d2a00; color: #ffe0b2; }
 .countdown strong { font: var(--mat-sys-headline-medium); }
 
 /* Live site ------------------------------------------------------------------- */
-.published-page { padding: 0 16px 32px; display: flex; flex-direction: column; gap: var(--studio-space); }
+/* Full width, edge to edge: sections paint their own bands and keep their content readable. */
+.published-page { display: flex; flex-direction: column; }
 .preview-mode .canvas { padding: 0; }
-.preview-mode .published-page { padding: 16px; }
+.preview-mode .canvas:not(.viewport-tablet):not(.viewport-mobile) { border-radius: 0; }
 .preview-bar { max-width: 1200px; margin: 0 auto 12px; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--mat-sys-surface); box-shadow: var(--mat-sys-level1); }
 .preview-path { flex: 1; min-width: 80px; border: 0; background: transparent; color: inherit; font: var(--mat-sys-body-medium); padding: 6px 0; }
 .preview-path:focus { outline: none; }

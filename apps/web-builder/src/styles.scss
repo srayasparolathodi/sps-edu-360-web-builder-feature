@@ -172,9 +172,9 @@ code, .mono { font-family: var(--font-mono); font-size: .86em; }
   background-image: linear-gradient(var(--paper-line) 1px, transparent 1px), linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
   background-size: 24px 24px;
 }
-.canvas-caption { max-width: 1200px; margin: 0 auto 10px; display: flex; justify-content: space-between; gap: 12px; color: var(--mat-sys-on-surface-variant); font: var(--mat-sys-label-medium); }
+.canvas-caption { margin: 0 auto 10px; display: flex; justify-content: space-between; gap: 12px; color: var(--mat-sys-on-surface-variant); font: var(--mat-sys-label-medium); }
 .canvas-caption span:first-child { font-family: var(--font-mono); }
-.canvas { container-type: inline-size; container-name: page-surface; background: var(--mat-sys-surface); color: var(--mat-sys-on-surface); width: 100%; max-width: 1200px; min-height: 760px; margin: auto; border-radius: 14px; box-shadow: var(--mat-sys-level2); overflow: hidden; transition: max-width .25s ease; }
+.canvas { container-type: inline-size; container-name: page-surface; background: var(--mat-sys-surface); color: var(--mat-sys-on-surface); width: 100%; min-height: 760px; margin: auto; border-radius: 14px; box-shadow: var(--mat-sys-level2); overflow: hidden; transition: max-width .25s ease; }
 .viewport-tablet { max-width: 768px; }
 .viewport-mobile { max-width: 390px; }
 .canvas.edit-mode { padding: 16px; }
@@ -193,16 +193,31 @@ code, .mono { font-family: var(--font-mono); font-size: .86em; }
 .empty-drop.mat-mdc-button:hover { border-color: var(--mat-sys-primary); color: var(--mat-sys-primary); background: var(--ink-soft); }
 
 /* ---- Rendered blocks (editor and live) ------------------------------------------ */
-.page-block { min-width: 0; overflow-wrap: anywhere; font-size: inherit; color: inherit; }
-.page-block > h1, .page-block > h2, .page-block > h3, .page-block > h4, .page-block > h5, .page-block > h6, .page-block > p { color: inherit; font-size: inherit; }
-.block-heading { font: var(--mat-sys-headline-medium); font-family: var(--font-display); }
-.block-heading:has(h1) { font: var(--mat-sys-display-small); font-family: var(--font-display); font-weight: 700; letter-spacing: -.015em; }
-.block-heading:has(h3) { font: var(--mat-sys-headline-small); font-family: var(--font-display); }
-.block-heading:has(h4), .block-heading:has(h5), .block-heading:has(h6) { font: var(--mat-sys-title-medium); }
-.page-block > p { margin-bottom: 0; }
+/* Defaults use :where() (no specificity), so a block's own styles (.element-<id>) always win.
+   Inner elements take their look from the block, which is what the author styles. */
+:where(.page-block) { min-width: 0; overflow-wrap: anywhere; font-size: inherit; color: inherit; }
+:where(.page-block) p { color: inherit; font-size: inherit; margin-bottom: 0; }
+:where(.block-heading) { font: var(--mat-sys-headline-medium); font-family: var(--font-display); }
+:where(.block-heading:has(h1)) { font: var(--mat-sys-display-small); font-family: var(--font-display); font-weight: 700; letter-spacing: -.015em; }
+:where(.block-heading:has(h3)) { font: var(--mat-sys-headline-small); font-family: var(--font-display); }
+:where(.block-heading:has(h4), .block-heading:has(h5), .block-heading:has(h6)) { font: var(--mat-sys-title-medium); }
+:where(.block-heading) :is(h1, h2, h3, h4, h5, h6) { font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; }
+/* Links and menus: theme colour by default, the block's colour and type when set. */
+:where(.block-link, .block-navigation, .block-breadcrumb, .block-menu) { color: var(--mat-sys-primary); }
+:where(.block-link) { text-decoration: underline; }
+.page-block:is(.block-link, .block-navigation, .block-breadcrumb) a, .page-block.block-menu button.mat-mdc-button-base {
+  color: inherit; font-family: inherit; font-size: inherit; font-weight: inherit; letter-spacing: inherit; text-transform: inherit;
+}
+.page-block.block-link a { text-decoration: inherit; }
+/* Buttons: styles land on the button itself (see blockCss); let it grow with its padding. */
+:is(.block-button, .block-submit) .mat-mdc-button-base { height: auto; min-height: 40px; }
+/* Images: a height set on the block crops the picture (object-fit, cover by default). */
+:where(.block-image) { object-fit: cover; }
+.block-image .media-frame { height: 100%; border-radius: inherit; overflow: hidden; }
+.block-image img { height: 100%; object-fit: inherit; object-position: inherit; border-radius: inherit; }
 .block-section, .block-container, .block-stack, .block-card, .block-form { display: flex; flex-direction: column; gap: var(--studio-space); padding: var(--studio-space); }
 .block-section { padding: 40px 24px; }
-.block-container { max-width: 1120px; margin: auto; width: 100%; }
+.block-container { width: 100%; }
 .block-card { border: 1px solid var(--mat-sys-outline-variant); border-radius: 16px; background: var(--mat-sys-surface); box-shadow: var(--mat-sys-level1); transition: box-shadow .2s, transform .2s; }
 .published-page .block-card:hover { box-shadow: var(--mat-sys-level2); transform: translateY(-2px); }
 .block-columns { display: grid; gap: var(--studio-space); }
@@ -218,7 +233,10 @@ code, .mono { font-family: var(--font-mono); font-size: .86em; }
 .page-block mat-form-field, .page-block input:not([type=checkbox]):not([type=radio]), .page-block textarea, .page-block select { width: 100%; }
 .page-block mat-slider { width: calc(100% - 24px); }
 .page-block mat-radio-group { display: flex; flex-wrap: wrap; gap: 8px; }
-.page-block nav, nav.page-block { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
+:where(.block-navigation, .block-breadcrumb) { gap: 4px 16px; justify-content: flex-start; align-items: center; }
+.page-block nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
+.page-block:is(.block-navigation, .block-breadcrumb) nav { align-items: inherit; justify-content: inherit; gap: inherit; }
+nav.page-block { display: flex; flex-wrap: wrap; }
 .block-stat { padding: 16px 18px; border-radius: 14px; background: var(--mat-sys-surface-container-low); border: 1px solid var(--mat-sys-outline-variant); }
 .block-stat > span { font: var(--mat-sys-label-large); color: var(--mat-sys-on-surface-variant); }
 .block-stat > h2 { margin: 4px 0 0; font: 700 34px/1.1 var(--font-display); letter-spacing: -.02em; }
@@ -250,8 +268,8 @@ code, .mono { font-family: var(--font-mono); font-size: .86em; }
 .preview-mode .canvas { min-height: calc(100dvh - 160px); }
 .cdk-drag-placeholder { opacity: .4; min-height: 48px; background: var(--highlighter-soft); border: 1.5px dashed var(--mat-sys-tertiary) !important; border-radius: 10px; }
 .cdk-drag-preview { box-shadow: var(--mat-sys-level3); background: var(--mat-sys-surface); border-radius: 10px; }
-.published-page { container-type: inline-size; container-name: page-surface; max-width: 1200px; margin: auto; }
-.published-page .block-button, .published-page .block-submit { display: inline-flex; align-items: center; padding: 10px 24px; background: var(--mat-sys-primary); color: var(--mat-sys-on-primary); border: 0; border-radius: 20px; text-decoration: none; }
+.published-page { container-type: inline-size; container-name: page-surface; width: 100%; }
+:where(.published-page) :is(a, button):is(.block-button, .block-submit) { display: inline-flex; align-items: center; padding: 10px 24px; background: var(--mat-sys-primary); color: var(--mat-sys-on-primary); border: 0; border-radius: 20px; text-decoration: none; }
 .published-page details { padding: 16px; border-bottom: 1px solid var(--mat-sys-outline-variant); }
 .published-page progress { width: 100%; accent-color: var(--mat-sys-primary); }
 
