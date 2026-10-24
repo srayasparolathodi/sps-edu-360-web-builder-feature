@@ -31,7 +31,7 @@
         <strong>Projects are saved on this device only</strong>
         <span>{{ api.cloudIssue() }} Connect to save online, work across devices and publish live sites.</span>
       </div>
-      @if (api.adminConfigured() && api.builderAuth() !== 'access') {
+      @if (api.adminConfigured()) {
         <mat-form-field appearance="outline" class="token-field"><mat-label>Admin token</mat-label><input matInput type="password" autocomplete="current-password" [ngModel]="token()" (ngModelChange)="token.set($event)" (keydown.enter)="connect()"></mat-form-field>
         <button mat-flat-button [disabled]="!token() || connecting()" (click)="connect()"><mat-icon>login</mat-icon>Connect</button>
       }
@@ -42,6 +42,7 @@
     <div class="section-head">
       <h2 id="new-heading">Start something new</h2>
       <span class="toolbar-spacer"></span>
+      <button mat-flat-button class="ai-create" [disabled]="atLimit()" (click)="openImport(0)"><mat-icon>auto_awesome</mat-icon>Create with AI</button>
       <mat-form-field appearance="outline" class="name-field"><mat-label>App name</mat-label><mat-hint>Becomes its web address, so it must be unique</mat-hint><input matInput placeholder="e.g. Greenfield School" [ngModel]="newName()" (ngModelChange)="newName.set($event)"></mat-form-field>
     </div>
     @if (atLimit()) {
@@ -69,8 +70,7 @@
       <h2 id="projects-heading">Your projects</h2>
       <span class="toolbar-spacer"></span>
       <mat-form-field appearance="outline" class="name-field"><mat-label>Search projects</mat-label><mat-icon matPrefix>search</mat-icon><input matInput [ngModel]="search()" (ngModelChange)="search.set($event)"></mat-form-field>
-      <button mat-stroked-button [disabled]="atLimit()" (click)="importInput.click()"><mat-icon>upload</mat-icon>Import</button>
-      <input #importInput type="file" accept="application/json,.json" class="visually-hidden" (change)="import($event)">
+      <button mat-stroked-button [disabled]="atLimit()" (click)="openImport(1)"><mat-icon>upload</mat-icon>Import JSON</button>
     </div>
     @if (projects() === null) {
       <div class="project-grid" aria-busy="true" aria-label="Loading projects">

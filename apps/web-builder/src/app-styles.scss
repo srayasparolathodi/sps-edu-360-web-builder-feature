@@ -531,3 +531,56 @@ html.dark-theme .monogram { color: hsl(var(--hue, 230) 80% 85%); background: hsl
   .state-live .state-chip { background: #1b4d2b; color: #c9f2d4; }
   .state-changed .state-chip, .state-review .state-chip { background: #5c4300; color: #ffe9a8; }
 }
+
+/* Import from AI / JSON --------------------------------------------------------------- */
+.import-dialog { min-height: 420px; }
+.import-pane { display: flex; flex-direction: column; gap: 12px; padding: 16px 2px 4px; }
+.import-pane .full-width { width: 100%; }
+.import-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
+.import-steps .inline-link { padding: 0 4px; min-width: 0; height: auto; }
+.prompt-text { width: 100%; min-height: 220px; font: 12px/1.5 var(--font-mono, monospace); border: 1px solid var(--mat-sys-outline-variant); border-radius: 8px; padding: 8px; background: var(--mat-sys-surface-container-low); color: inherit; resize: vertical; }
+.json-input { font: 12px/1.5 var(--font-mono, monospace) !important; }
+.file-pick { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--mat-sys-primary); font-weight: 500; width: fit-content; }
+.import-result { display: flex; gap: 10px; padding: 12px 14px; border-radius: 12px; }
+.import-result > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.import-result > div button { align-self: flex-start; margin-top: 6px; }
+.import-result.ok { background: color-mix(in srgb, #1e8e3e 10%, transparent); }
+.import-result.ok > .mat-icon { color: #1e8e3e; }
+.import-result.failed { background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
+.import-warnings ul { margin: 0; padding-left: 18px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.import-warnings .mat-icon { margin-right: 8px; }
+.ai-create { white-space: nowrap; }
+
+/* Saved APIs and component ports ------------------------------------------------------ */
+.api-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; border: 1px solid var(--mat-sys-outline-variant); border-radius: 12px; background: var(--mat-sys-surface); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.api-row:hover, .api-row:focus-visible { border-color: var(--mat-sys-primary); }
+.api-row-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.api-row-text .muted { font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.method-chip { font: 600 11px/1 var(--font-mono, monospace); padding: 5px 7px; border-radius: 6px; background: #e3f2e7; color: #11552a; }
+.method-chip[data-method='POST'] { background: #fff1c2; color: #6b4b00; }
+.method-chip[data-method='PUT'], .method-chip[data-method='PATCH'] { background: #e1ecff; color: #173f8a; }
+.method-chip[data-method='DELETE'] { background: #fde2e1; color: #8c1d18; }
+.api-editor { display: flex; flex-direction: column; gap: 10px; }
+.api-editor .full-width { width: 100%; }
+.api-editor .inline-fields { display: flex; gap: 8px; flex-wrap: wrap; }
+.api-editor .inline-fields > mat-form-field { flex: 1 1 220px; }
+.api-editor .method-url .method-field { flex: 0 0 120px; }
+.api-editor .panel-title .muted { font-weight: 400; font-size: 12px; }
+.param-row, .port-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.param-row > mat-form-field { flex: 1 1 140px; }
+.param-row .place-field { flex: 1 1 170px; }
+.port-row > mat-form-field { flex: 1 1 120px; }
+.api-section { margin: 4px 0; }
+.api-result { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, #1e8e3e 10%, transparent); overflow-wrap: anywhere; }
+.api-result.failed { background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
+.api-result pre { margin: 6px 0 0; max-height: 260px; overflow: auto; font: 12px/1.45 var(--font-mono, monospace); white-space: pre-wrap; }
+.api-problems { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; color: var(--mat-sys-error); font-size: 13px; }
+.api-problems li { display: flex; gap: 6px; align-items: flex-start; }
+.ports-panel { margin: 4px 0; }
+.danger { color: var(--mat-sys-error); }
+@media (prefers-color-scheme: dark) {
+  .method-chip { background: #1b4d2b; color: #c9f2d4; }
+  .method-chip[data-method='POST'] { background: #5c4300; color: #ffe9a8; }
+  .method-chip[data-method='PUT'], .method-chip[data-method='PATCH'] { background: #1d3561; color: #d6e3ff; }
+  .method-chip[data-method='DELETE'] { background: #6d1b17; color: #ffdad6; }
+}

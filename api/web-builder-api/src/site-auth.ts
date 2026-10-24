@@ -6,6 +6,7 @@
  *   DATABASE_URL        Postgres for Better Auth's tables (user, session, account, verification)
  *   BETTER_AUTH_SECRET  long random string used to sign sessions (Worker secret)
  */
+import { RedisLike, cacheRole, cachedRole } from './upstash'
 import { betterAuth } from 'better-auth'
 import { getMigrations } from 'better-auth/db/migration'
 import { Pool } from 'pg'
@@ -84,6 +85,7 @@ export async function visitorFor(
   siteId: string,
   settings: SiteAuth | undefined,
   store: ProjectStore,
+  redis: RedisLike | null = null,
 ): Promise<Visitor> {
   if (!settings?.enabled || !handle) return ANONYMOUS
   const session = await handle.auth.api
@@ -92,6 +94,18 @@ export async function visitorFor(
   const user = session?.user as
     { id: string; email: string; name?: string } | undefined
   if (!user) return ANONYMOUS
+  // Only roles the app still defines count, even if an old membership names another one.
+  const known = (role: string | undefined) =>
+    role && settings.roles.some((item) => item.id === role) ? [role] : []
+  const visitor = (roles: string[]): Visitor => ({
+    signedIn: true,
+    id: user.id,
+    email: user.email,
+    name: user.name ?? null,
+    roles,
+  })
+  const cached = await cachedRole(redis, siteId, user.id)
+  if (cached !== undefined) return visitor(known(cached))
   let member = await store.getMember(siteId, user.id)
   const invite = member
     ? null
@@ -111,11 +125,6 @@ export async function visitorFor(
     }
     await store.upsertMember(member)
   }
-  return {
-    signedIn: true,
-    id: user.id,
-    email: user.email,
-    name: user.name ?? null,
-    roles: member ? [member.role] : [],
-  }
+  await cacheRole(redis, siteId, user.id, member?.role ?? '')
+  return visitor(known(member?.role))
 }

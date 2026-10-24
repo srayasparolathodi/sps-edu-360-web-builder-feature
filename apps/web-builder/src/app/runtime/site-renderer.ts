@@ -98,15 +98,16 @@ export class SiteRenderer {
         this.runtime.base.set(this.base())
         this.runtime.navigateHook.set(this.onNavigate())
         this.runtime.authHook.set(this.onAuthChange())
-        this.runtime.user.set(this.visitor())
         this.runtime.load(project, draft)
+        // After loading: clears per-user values if a different person is now signed in.
+        this.runtime.setUser(this.visitor())
         this.runtime.open(this.path(), this.query())
         this.opened = `${this.path()}?${JSON.stringify(this.query())}`
       })
     })
     effect(() => {
       const visitor = this.visitor()
-      untracked(() => this.runtime.user.set(visitor))
+      untracked(() => this.runtime.setUser(visitor))
     })
     // Navigation within the same project; skips the open the effect above just did.
     effect(() => {

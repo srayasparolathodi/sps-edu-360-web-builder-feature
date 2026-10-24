@@ -42,6 +42,7 @@
       @case ('hero') {
         <section [class]="className()" [style.background-image]="heroImage()"><div class="hero-inner"><live-blocks [blocks]="b.children" [scope]="scope()" /></div></section>
       }
+      @case ('component') { <section [class]="className()"><live-blocks [blocks]="b.children" [scope]="componentScope()" /></section> }
       @case ('header') { <header [class]="className()"><live-blocks [blocks]="b.children" [scope]="scope()" /></header> }
       @case ('footer') { <footer [class]="className()"><live-blocks [blocks]="b.children" [scope]="scope()" /></footer> }
       @default { <section [class]="className()"><live-blocks [blocks]="b.children" [scope]="scope()" /></section> }

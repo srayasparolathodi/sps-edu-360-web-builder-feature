@@ -12,6 +12,7 @@ import { ProjectStore, RunSource } from './storage'
 import { RedisLike, loadBreakers, saveBreakers } from './upstash'
 import { Connector, connect, runQuery } from './datasources'
 import { ANONYMOUS, Visitor, allows } from '@spsedu360/engine/access'
+import { callApi as sendApi } from './apis'
 
 // Circuits survive between requests handled by the same isolate.
 const breakers = new BreakerRegistry()
@@ -29,6 +30,16 @@ export interface ComputeRequest {
   input?: unknown
   params?: unknown
   query?: unknown
+  /**
+   * The visitor's current variables (this visit, session and device), sent by the browser so server
+   * journeys can use them. Supplied by the visitor: fine for preferences and filters, never for
+   * deciding access, which must use `user` (from the signed-in session).
+   */
+  state?: {
+    vars?: Record<string, unknown>
+    session?: Record<string, unknown>
+    local?: Record<string, unknown>
+  }
 }
 
 export async function runServerFlow(options: {
@@ -45,6 +56,18 @@ export async function runServerFlow(options: {
   connector?: Connector
   /** Signed-in visitor, from the server session (never from the request body). */
   user?: Visitor
+  /**
+   * Run by the system rather than a live request: scheduled jobs, and background runs whose
+   * trigger was already authorized. Access rules are not checked again.
+   */
+  system?: boolean
+  /** Stores a file an app user sent (the "Save uploaded file" step). */
+  storeFile?: (file: {
+    name: string
+    type: string
+    size: number
+    dataUrl: string
+  }) => Promise<Record<string, unknown>>
 }): Promise<FlowResult> {
   const { project, flowId, request } = options
   const flow = project.flows.find((item) => item.id === flowId)
@@ -55,7 +78,8 @@ export async function runServerFlow(options: {
       'This flow runs in the browser, not on the server.',
     )
   const user = options.user ?? ANONYMOUS
-  if (!allows(flow.access, user))
+  // System runs (schedules, and background runs already authorized when they were triggered) skip user checks.
+  if (!options.system && !allows(flow.access, user))
     throw new ComputeError(
       user.signedIn ? 403 : 401,
       user.signedIn
@@ -77,11 +101,16 @@ export async function runServerFlow(options: {
     input: request.input ?? {},
     params: request.params ?? {},
     query: request.query ?? {},
-    vars: Object.fromEntries(
-      project.variables
-        .filter((v) => v.scope === 'vars')
-        .map((v) => [v.name, v.initial]),
-    ),
+    vars: {
+      ...Object.fromEntries(
+        project.variables
+          .filter((v) => v.scope === 'vars')
+          .map((v) => [v.name, v.initial]),
+      ),
+      ...(request.state?.vars ?? {}),
+    },
+    session: request.state?.session ?? {},
+    local: request.state?.local ?? {},
     secrets,
     // Trusted: lets queries gather only this visitor's data, e.g. student_id = user.id.
     user,
@@ -106,6 +135,26 @@ export async function runServerFlow(options: {
           options.connector ?? connect,
         )
       },
+      callApi: async (apiId, args, signal) => {
+        const api = project.apis?.find((item) => item.id === apiId)
+        if (!api) throw new ComputeError(400, 'That API no longer exists.')
+        if (!options.system && !allows(api.access, user))
+          throw new ComputeError(
+            user.signedIn ? 403 : 401,
+            `You do not have access to ${api.name}.`,
+          )
+        return sendApi(api, args, { secrets, signal })
+      },
+      ...(options.storeFile
+        ? {
+            storeFile: (file: {
+              name: string
+              type: string
+              size: number
+              dataUrl: string
+            }) => options.storeFile!(file),
+          }
+        : {}),
     },
     { side: 'server', breakers, key: project.id, concurrency: 6 },
   )
@@ -134,4 +183,15 @@ export async function runServerFlow(options: {
     },
     secrets,
   )
+}
+
+/** Who scheduled jobs run as: the system, with every role of the app, never a real person. */
+export function systemUser(project: Project): Visitor {
+  return {
+    signedIn: true,
+    id: 'system',
+    email: null,
+    name: 'System',
+    roles: project.auth?.roles.map((role) => role.id) ?? [],
+  }
 }

@@ -246,3 +246,54 @@ export async function syncSchedules(
     )
   return [...wanted.keys()]
 }
+
+// ---- Roles of signed-in app users -----------------------------------------------------
+
+/** One entry per app and user: the user's role in that app, or "" for no membership. */
+const roleKey = (siteId: string, userId: string) =>
+  `ps:role:${siteId}:${userId}`
+/** Roles are re-read from the database at least this often, even without a change. */
+export const ROLE_TTL_SECONDS = 600
+
+/** The cached role: a role id, "" when the user has no role here, or undefined when not cached. */
+export async function cachedRole(
+  redis: RedisLike | null,
+  siteId: string,
+  userId: string,
+): Promise<string | undefined> {
+  if (!redis) return undefined
+  try {
+    const value = await redis.get<string>(roleKey(siteId, userId))
+    return typeof value === 'string' ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export async function cacheRole(
+  redis: RedisLike | null,
+  siteId: string,
+  userId: string,
+  role: string,
+): Promise<void> {
+  if (!redis) return
+  try {
+    await redis.set(roleKey(siteId, userId), role, { ex: ROLE_TTL_SECONDS })
+  } catch {
+    /* the database stays the source of truth */
+  }
+}
+
+/** Called whenever an author or admin changes or removes someone's role. */
+export async function forgetRole(
+  redis: RedisLike | null,
+  siteId: string,
+  userId: string,
+): Promise<void> {
+  if (!redis) return
+  try {
+    await redis.del(roleKey(siteId, userId))
+  } catch {
+    /* expires on its own within ROLE_TTL_SECONDS */
+  }
+}

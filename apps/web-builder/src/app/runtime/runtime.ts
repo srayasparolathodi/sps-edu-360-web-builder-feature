@@ -1,7 +1,8 @@
-import { Injectable, computed, inject, signal } from '@angular/core'
+import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core'
 import { Router } from '@angular/router'
 import { MatSnackBar } from '@angular/material/snack-bar'
 import {
+  OUTPUT_PREFIX,
   Block,
   BindingKey,
   EventName,
@@ -42,6 +43,10 @@ export interface FlowState {
 
 const storageKey = (projectId: string, name: string) =>
   `ps:${projectId}:${name}`
+/** Cached step results live beside variables, under their own prefix. */
+const cachePrefix = (projectId: string) => `ps:${projectId}:~cache:`
+/** Which signed-in user the stored per-user values belong to. */
+const ownerKey = (projectId: string) => `ps:${projectId}:~owner`
 
 /**
  * Live state for one rendered site (or the builder preview). Provided per
@@ -52,6 +57,31 @@ export class RuntimeService {
   private readonly api = inject(ApiService)
   private readonly router = inject(Router)
   private readonly snack = inject(MatSnackBar)
+
+  /** Keeps device (local) values in step when they change in another tab of the same app. */
+  private readonly syncTabs = (event: StorageEvent): void => {
+    const project = this.project()
+    if (!project || event.storageArea !== safeStorage('local') || !event.key)
+      return
+    const prefix = storageKey(project.id, '')
+    const name = event.key.slice(prefix.length)
+    if (!event.key.startsWith(prefix) || name.startsWith('~')) return
+    let value: unknown = null
+    try {
+      value = event.newValue === null ? null : JSON.parse(event.newValue)
+    } catch {
+      return
+    }
+    this.local.update((current) => ({ ...current, [name]: value }))
+  }
+
+  constructor() {
+    if (typeof window === 'undefined') return
+    window.addEventListener('storage', this.syncTabs)
+    inject(DestroyRef).onDestroy(() =>
+      window.removeEventListener('storage', this.syncTabs),
+    )
+  }
 
   readonly project = signal<Project | null>(null)
   readonly page = signal<Page | null>(null)
@@ -72,6 +102,8 @@ export class RuntimeService {
   readonly authHook = signal<(() => void) | null>(null)
 
   authChanged(): void {
+    // Signing in or out always starts the next person with a clean slate.
+    this.clearUserData()
     this.authHook()?.()
   }
 
@@ -126,10 +158,30 @@ export class RuntimeService {
           variable.initial,
         )
     }
+    // Values saved by steps ("save the result in a variable") come back even if not declared.
+    for (const [scope, values] of [
+      ['session', session],
+      ['local', local],
+    ] as const) {
+      const store = safeStorage(scope)
+      if (!store) continue
+      try {
+        const prefix = storageKey(project.id, '')
+        for (const key of Object.keys(store)) {
+          const name = key.slice(prefix.length)
+          if (!key.startsWith(prefix) || name.startsWith('~') || name in values)
+            continue
+          values[name] = JSON.parse(store.getItem(key) ?? 'null')
+        }
+      } catch {
+        /* unreadable entries are skipped */
+      }
+    }
     this.vars.set(vars)
     this.session.set(session)
     this.local.set(local)
     this.flows.set({})
+    this.memoryCache.clear()
   }
 
   /** Shows the page for `path` and runs its page-load and data-source flows. */
@@ -189,16 +241,145 @@ export class RuntimeService {
         : scope === 'session'
           ? this.session
           : this.local
-    target.update((current) => ({ ...current, [name]: value }))
+    target.update((current) => ({ ...current, [name]: value ?? null }))
     if (scope !== 'vars' && project)
       try {
-        safeStorage(scope)?.setItem(
-          storageKey(project.id, name),
-          JSON.stringify(value ?? null),
-        )
+        // Setting nothing removes the value from the browser.
+        if (value === null || value === undefined)
+          safeStorage(scope)?.removeItem(storageKey(project.id, name))
+        else
+          safeStorage(scope)?.setItem(
+            storageKey(project.id, name),
+            JSON.stringify(value),
+          )
       } catch {
         /* storage full or blocked: keep the in-memory value */
       }
+  }
+
+  /** The visitor's variables, sent along when a server journey runs. */
+  state(): {
+    vars: Record<string, unknown>
+    session: Record<string, unknown>
+    local: Record<string, unknown>
+  } {
+    return { vars: this.vars(), session: this.session(), local: this.local() }
+  }
+
+  // ---- Step result cache ("Reuse the result for …") ----------------------------------
+
+  private readonly memoryCache = new Map<
+    string,
+    { value: unknown; expires: number }
+  >()
+
+  cacheGet(
+    scope: VariableScope,
+    key: string,
+  ): { found: boolean; value?: unknown } {
+    const project = this.project()
+    if (!project) return { found: false }
+    const id = cachePrefix(project.id) + key
+    let entry: { value: unknown; expires: number } | undefined
+    if (scope === 'vars') entry = this.memoryCache.get(id)
+    else
+      try {
+        const raw = safeStorage(scope)?.getItem(id)
+        entry = raw
+          ? (JSON.parse(raw) as { value: unknown; expires: number })
+          : undefined
+      } catch {
+        entry = undefined
+      }
+    if (!entry) return { found: false }
+    if (entry.expires < Date.now()) {
+      if (scope === 'vars') this.memoryCache.delete(id)
+      else safeStorage(scope)?.removeItem(id)
+      return { found: false }
+    }
+    return { found: true, value: entry.value }
+  }
+
+  cacheSet(
+    scope: VariableScope,
+    key: string,
+    value: unknown,
+    ttlSeconds: number,
+  ): void {
+    const project = this.project()
+    if (!project) return
+    const id = cachePrefix(project.id) + key
+    const entry = { value, expires: Date.now() + ttlSeconds * 1000 }
+    if (scope === 'vars') this.memoryCache.set(id, entry)
+    else
+      try {
+        safeStorage(scope)?.setItem(id, JSON.stringify(entry))
+      } catch {
+        /* storage full: simply not cached */
+      }
+  }
+
+  // ---- Signed-in user ------------------------------------------------------------------
+
+  /**
+   * Sets who is visiting (from the server session). When it is a different person than the one
+   * the stored per-user values and cached results belong to, those are cleared first, so one
+   * user's data never shows for the next person on the same device.
+   */
+  setUser(visitor: Visitor): void {
+    this.user.set(visitor)
+    const project = this.project()
+    if (!project) return
+    const owner = visitor.signedIn ? (visitor.id ?? '') : ''
+    let stored: string | null = null
+    try {
+      stored = safeStorage('local')?.getItem(ownerKey(project.id)) ?? null
+    } catch {
+      stored = null
+    }
+    if (stored !== null && stored !== owner) this.clearUserData()
+    try {
+      safeStorage('local')?.setItem(ownerKey(project.id), owner)
+    } catch {
+      /* blocked storage: nothing persisted, nothing to clear */
+    }
+  }
+
+  /** Removes values marked "belongs to the signed-in user" and every cached step result. */
+  clearUserData(): void {
+    const project = this.project()
+    if (!project) return
+    for (const variable of project.variables) {
+      if (!variable.perUser) continue
+      const initial = structuredClone(variable.initial ?? null)
+      const target =
+        variable.scope === 'vars'
+          ? this.vars
+          : variable.scope === 'session'
+            ? this.session
+            : this.local
+      target.update((current) => ({ ...current, [variable.name]: initial }))
+      if (variable.scope !== 'vars')
+        try {
+          safeStorage(variable.scope)?.removeItem(
+            storageKey(project.id, variable.name),
+          )
+        } catch {
+          /* blocked storage */
+        }
+    }
+    this.memoryCache.clear()
+    for (const scope of ['session', 'local'] as const) {
+      const store = safeStorage(scope)
+      if (!store) continue
+      try {
+        const prefix = cachePrefix(project.id)
+        for (const key of Object.keys(store))
+          if (key.startsWith(prefix)) store.removeItem(key)
+      } catch {
+        /* blocked storage */
+      }
+    }
   }
 
   notify(level: NotifyLevel, message: string): void {
@@ -260,7 +441,12 @@ export class RuntimeService {
           ? await this.api.runServerFlow(
               project,
               flow.id,
-              { input, params: this.params(), query: this.query() },
+              {
+                input,
+                params: this.params(),
+                query: this.query(),
+                state: this.state(),
+              },
               this.draft(),
               controller.signal,
             )
@@ -282,7 +468,21 @@ export class RuntimeService {
                       input: flowInput,
                       params: this.params(),
                       query: this.query(),
+                      state: this.state(),
                     },
+                    this.draft(),
+                    signal,
+                  ),
+                callApi: (apiId, args, signal) =>
+                  this.api.callApi(project, apiId, args, this.draft(), signal),
+                cacheGet: (scope, key) => this.cacheGet(scope, key),
+                cacheSet: (scope, key, value, ttl) =>
+                  this.cacheSet(scope, key, value, ttl),
+                storeFile: (file, signal) =>
+                  this.api.storeFile(
+                    project,
+                    flowId,
+                    file,
                     this.draft(),
                     signal,
                   ),
@@ -294,6 +494,7 @@ export class RuntimeService {
                       input: flowInput,
                       params: this.params(),
                       query: this.query(),
+                      state: this.state(),
                     },
                     this.draft(),
                     signal,
@@ -372,11 +573,52 @@ export class RuntimeService {
   ): void {
     const flowId = block.on?.[event]
     if (!flowId) return
+    const { __component: owner, ...rest } = details as {
+      __component?: Block
+    } & Record<string, unknown>
+    // Inside a component, "@output:name" raises that output; the page decides which flow handles it.
+    if (flowId.startsWith(OUTPUT_PREFIX)) {
+      const output = flowId.slice(OUTPUT_PREFIX.length)
+      const target = owner?.outputs?.[output]
+      if (!target) return
+      void this.run(
+        target,
+        {},
+        {
+          event: {
+            type: 'output',
+            output,
+            block: owner!.name,
+            value: rest['props'] ?? null,
+            source: event,
+            ...rest,
+          },
+        },
+      )
+      return
+    }
     void this.run(
       flowId,
       {},
-      { event: { type: event, block: block.name, ...details } },
+      { event: { type: event, block: block.name, ...rest } },
     )
+  }
+
+  /** Values a placed component receives (props.*), worked out where it is placed. */
+  componentProps(
+    block: Block,
+    scope: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const data = { ...this.context(), ...scope }
+    const props: Record<string, unknown> = {}
+    for (const [name, value] of Object.entries(block.props ?? {})) {
+      try {
+        props[name] = isLogic(value) ? evaluate(value, data) : value
+      } catch {
+        props[name] = null
+      }
+    }
+    return props
   }
 
   /** Ticks once a second while a countdown is on screen. */

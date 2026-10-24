@@ -129,6 +129,43 @@ export class FlowEditor {
     this.store.project().flows.filter((flow) => flow.runAt === 'server'),
   )
   readonly dataSources = computed(() => this.store.project().dataSources)
+  /** Saved APIs this flow may call: the app's, plus those of the pages it runs on. */
+  readonly apis = computed(() => {
+    const pageIds = this.flow()?.pageIds ?? []
+    return (this.store.project().apis ?? []).filter(
+      (api) => !api.pageId || !pageIds.length || pageIds.includes(api.pageId),
+    )
+  })
+  readonly stepApi = computed(() =>
+    (this.store.project().apis ?? []).find(
+      (api) => api.id === this.step()?.apiId,
+    ),
+  )
+
+  readonly Math = Math
+
+  setCache(on: boolean): void {
+    this.updateStep((step) => {
+      if (on) step.cache = { scope: 'session', ttlSeconds: 600 }
+      else delete step.cache
+    })
+  }
+  setCacheField(field: 'scope' | 'ttlSeconds', value: unknown): void {
+    this.updateStep((step) => {
+      if (step.cache) step.cache = { ...step.cache, [field]: value }
+    })
+  }
+
+  setArg(name: string, value: Logic | undefined): void {
+    this.updateStep((step) => {
+      const args = {
+        ...((step.args as Record<string, unknown> | undefined) ?? {}),
+      }
+      if (value === undefined) delete args[name]
+      else args[name] = value
+      step.args = args as Logic
+    })
+  }
   readonly stepSource = computed(() =>
     this.dataSources().find((source) => source.id === this.step()?.dataSource),
   )

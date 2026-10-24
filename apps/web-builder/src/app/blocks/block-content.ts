@@ -48,7 +48,8 @@ export interface BlockEvent {
   details: Record<string, unknown>
 }
 
-const MAX_FILE_DATA = 1_000_000
+/** Files up to this size are read so a journey can store them (the server accepts up to 10 MB). */
+const MAX_FILE_DATA = 10 * 1024 * 1024
 
 /**
  * Renders the content of one non-container block from a resolved view.

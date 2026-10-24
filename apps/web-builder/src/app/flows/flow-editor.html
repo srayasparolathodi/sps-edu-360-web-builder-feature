@@ -161,6 +161,25 @@
               </mat-form-field>
               <query-builder [query]="step.query!" [source]="stepSource()" [variables]="variables()" [sample]="sample()" (queryChange)="setQuery($event)" />
             }
+            @case ('api') {
+              <mat-form-field appearance="outline"><mat-label>API</mat-label>
+                <mat-select [value]="step.apiId" (selectionChange)="setStep('apiId', $event.value)">
+                  @for (api of apis(); track api.id) { <mat-option [value]="api.id">{{ api.name }} — {{ api.method }}{{ api.pageId ? ' (page API)' : '' }}</mat-option> }
+                </mat-select>
+                @if (!apis().length) { <mat-hint>Add an API on the APIs tab first.</mat-hint> }
+              </mat-form-field>
+              @if (stepApi(); as api) {
+                <p class="muted">{{ api.description || api.url }}</p>
+                @for (param of api.params; track param.name) {
+                  <logic-field [label]="param.name + (param.required ? ' (required)' : '')" [hint]="'Sent in ' + param.in + '. Use earlier steps (steps.<id>), forms (event.form), variables or the page address (params.*).'" [startOpen]="param.required" [value]="$any(step.args)?.[param.name]" [variables]="variables()" [sample]="sample()" (valueChange)="setArg(param.name, $event)" />
+                } @empty { <p class="muted">This API takes no parameters.</p> }
+                <logic-field label="No data when" hint="Use 'response'. Empty = an empty list or nothing counts as no data." [value]="step.emptyWhen" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('emptyWhen', $event)" />
+              }
+            }
+            @case ('storeFile') {
+              <logic-field label="File" hint="The value of a File upload block, e.g. its variable (vars.document) or event.value when this runs on its change." [startOpen]="true" [optional]="false" [value]="step.file" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('file', $event)" />
+              <p class="muted">Stores the file (up to 10 MB) in this app's storage. The result has <code>url</code>, <code>name</code>, <code>type</code> and <code>size</code> to send to an API or database in a later step.</p>
+            }
             @case ('serverFlow') {
               <mat-form-field appearance="outline"><mat-label>Server flow</mat-label><mat-select [value]="step.flowId" (selectionChange)="setStep('flowId', $event.value)">@for (other of serverFlows(); track other.id) { <mat-option [value]="other.id">{{ other.name }}</mat-option> }</mat-select>@if (!serverFlows().length) { <mat-hint>Create a flow set to "Server" first.</mat-hint> }</mat-form-field>
               <logic-field label="Input" hint="Data the server flow receives as 'input'." [value]="step.input" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('input', $event)" />
@@ -176,6 +195,20 @@
             }
           }
           <logic-field label="Only run when" hint="Skip this step unless the condition is true." [value]="step.when" [variables]="variables()" [sample]="sample()" (valueChange)="setLogic('when', $event)" />
+          @if (['api', 'http', 'query', 'serverFlow'].includes(step.type)) {
+            <mat-slide-toggle [checked]="!!step.cache" (change)="setCache($event.checked)">Reuse the result for a while (cache)</mat-slide-toggle>
+            @if (step.cache; as cache) {
+              <div class="inline-fields">
+                <mat-form-field appearance="outline"><mat-label>Keep it</mat-label>
+                  <mat-select [value]="cache.scope" (selectionChange)="setCacheField('scope', $event.value)">
+                    <mat-option value="vars">Until the page reloads</mat-option><mat-option value="session">Until the tab closes (session storage)</mat-option><mat-option value="local">On this device (local storage)</mat-option>
+                  </mat-select>
+                </mat-form-field>
+                <mat-form-field appearance="outline"><mat-label>For (minutes)</mat-label><input matInput type="number" min="1" max="43200" [ngModel]="cache.ttlSeconds / 60" (ngModelChange)="setCacheField('ttlSeconds', Math.max(1, Math.round(+$event * 60)))"></mat-form-field>
+              </div>
+              <p class="muted">Calls with the same inputs reuse the stored answer. Cached answers are cleared when someone signs in or out.</p>
+            }
+          }
           <mat-slide-toggle [checked]="!!step.saveAs" (change)="setSaveAs($event.checked)">Also save the result in a variable</mat-slide-toggle>
           @if (step.saveAs; as saveAs) {
             <div class="inline-fields">

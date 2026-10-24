@@ -1,6 +1,6 @@
 import { Injectable, computed, signal } from '@angular/core'
 import { Project, parseProject } from '@spsedu360/engine/model'
-import type { FlowResult } from '@spsedu360/engine/flow'
+import type { FlowResult, HttpResponse } from '@spsedu360/engine/flow'
 import type { Visitor } from '@spsedu360/engine/access'
 import type { EntityKind, EntityStatus } from '@spsedu360/engine/publishing'
 import {
@@ -39,6 +39,15 @@ export interface PublishResult extends ProjectSummary {
   url: string
   live: boolean
   statuses: EntityStatus[]
+}
+
+export interface ApiTestResult {
+  ok: boolean
+  status: number
+  body?: unknown
+  error?: string
+  durationMs: number
+  request?: { method: string; url: string }
 }
 
 export interface ProjectSummary {
@@ -393,7 +402,12 @@ export class ApiService {
   async runServerFlow(
     project: Project,
     flowId: string,
-    body: { input: unknown; params: unknown; query: unknown },
+    body: {
+      input: unknown
+      params: unknown
+      query: unknown
+      state?: { vars: unknown; session: unknown; local: unknown }
+    },
     draft: boolean,
     signal?: AbortSignal,
   ): Promise<FlowResult> {
@@ -417,11 +431,84 @@ export class ApiService {
     )
   }
 
+  /**
+   * Calls one of the app's saved APIs. The server builds the request with the app's credentials;
+   * drafts (builder preview) are tested against the unsaved project.
+   */
+  async callApi(
+    project: Project,
+    apiId: string,
+    args: Record<string, unknown>,
+    draft: boolean,
+    signal?: AbortSignal,
+  ): Promise<HttpResponse> {
+    if (draft) {
+      const result = await this.testApi(project, apiId, args, signal)
+      if (result.error)
+        throw new StepError(result.error, result.status || undefined, false)
+      return { status: result.status, ok: result.ok, body: result.body }
+    }
+    return this.request<HttpResponse>(
+      `/api/sites/${project.id}/apis/${apiId}/call`,
+      { method: 'POST', body: JSON.stringify({ args }), signal },
+      `api:${project.id}:${apiId}:${Date.now()}`,
+    )
+  }
+
+  /** Builder: calls an API of the unsaved project and returns everything the test panel shows. */
+  async testApi(
+    project: Project,
+    apiId: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<ApiTestResult> {
+    if ((await this.connect()) !== 'cloud')
+      throw new StepError(
+        'APIs are called by the server. Connect cloud storage to test them.',
+        undefined,
+        false,
+      )
+    return this.request<ApiTestResult>(
+      `/api/projects/${project.id}/apis/${apiId}/test`,
+      { method: 'POST', body: JSON.stringify({ project, args }), signal },
+      `api-test:${project.id}:${apiId}:${Date.now()}`,
+    )
+  }
+
+  /** Stores a file an app user chose (the "Save uploaded file" step); returns its link. */
+  async storeFile(
+    project: Project,
+    flowId: string,
+    file: { name: string; type: string; size: number; dataUrl: string },
+    draft: boolean,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    const path = draft
+      ? `/api/projects/${project.id}/files/store`
+      : `/api/sites/${project.id}/files/store`
+    if (draft && (await this.connect()) !== 'cloud')
+      throw new StepError(
+        'Files are stored in the cloud. Connect cloud storage to test this step.',
+        undefined,
+        false,
+      )
+    return this.request(
+      path,
+      { method: 'POST', body: JSON.stringify({ flowId, file }), signal },
+      `file:${project.id}:${Date.now()}`,
+    )
+  }
+
   /** Queues a server flow to run in the background (QStash); drafts run straight away. */
   async enqueueFlow(
     project: Project,
     flowId: string,
-    body: { input: unknown; params: unknown; query: unknown },
+    body: {
+      input: unknown
+      params: unknown
+      query: unknown
+      state?: { vars: unknown; session: unknown; local: unknown }
+    },
     draft: boolean,
     signal?: AbortSignal,
   ): Promise<string> {
@@ -632,9 +719,7 @@ export class ApiService {
 
   // ---- Credentials (stored encrypted by the server; values never come back) ------
 
-  async secrets(
-    projectId: string,
-  ): Promise<{
+  async secrets(projectId: string): Promise<{
     provider: 'openbao' | 'database' | 'env'
     writable: boolean
     names: string[]

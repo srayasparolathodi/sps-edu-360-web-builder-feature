@@ -90,7 +90,16 @@ export function forVisitor<T extends ProjectLike>(
   project: T,
   visitor: Visitor,
 ): T {
-  if (!project.auth?.enabled) return project
+  // Server-only APIs (and any the visitor may not call) are never sent to the browser.
+  const apis = (
+    project as { apis?: { browser: boolean; access?: AccessRule }[] }
+  ).apis
+  const visibleApis = apis?.filter(
+    (api) =>
+      api.browser && (!project.auth?.enabled || allows(api.access, visitor)),
+  )
+  if (!project.auth?.enabled)
+    return apis ? { ...project, apis: visibleApis } : project
   const prune = (blocks: BlockLike[]): BlockLike[] =>
     blocks
       .filter((block) => allows(block.access, visitor))
@@ -104,5 +113,6 @@ export function forVisitor<T extends ProjectLike>(
     ),
     // Flows the visitor can't use are removed, so their logic (and any API addresses) stays private.
     flows: project.flows.filter((flow) => allows(flow.access, visitor)),
+    ...(apis ? { apis: visibleApis } : {}),
   }
 }

@@ -27,10 +27,22 @@ import {
   restoreEntity,
   unpublishEntity,
 } from './publishing'
-import { ComputeError, ComputeRequest, runServerFlow } from './compute'
-import { SECRET_NAME, SecretsUnavailableError, createSecrets } from './secrets'
+import {
+  ComputeError,
+  ComputeRequest,
+  runServerFlow,
+  systemUser,
+} from './compute'
+import { callApi as sendApi, safeUrl } from './apis'
+import {
+  SECRET_NAME,
+  SecretsUnavailableError,
+  createSecrets,
+  redact,
+} from './secrets'
 import { KVLike, NotFoundError, ProjectStore, createStore } from './storage'
 import {
+  forgetRole,
   allow,
   cacheSite,
   cachedSite,
@@ -39,6 +51,7 @@ import {
 } from './upstash'
 import { readSchema } from './datasources'
 import {
+  storeVisitorFile,
   AssetError,
   AssetRecord,
   Bucket,
@@ -98,6 +111,8 @@ export interface Env {
 }
 
 const MAX_BODY = 2_000_000
+/** A 10 MB file as a base64 data URL, plus the request around it. */
+const MAX_FILE_BODY = 14_500_000
 /** Origins whose bucket CORS rule was checked in this isolate. */
 const corsReady = new Set<string>()
 const ID = /^[a-zA-Z0-9-]{1,80}$/
@@ -131,11 +146,14 @@ const json = (
     },
   })
 
-async function readBody(request: Request): Promise<Record<string, unknown>> {
+async function readBody(
+  request: Request,
+  max = MAX_BODY,
+): Promise<Record<string, unknown>> {
   const length = Number(request.headers.get('Content-Length') ?? 0)
-  if (length > MAX_BODY) throw new HttpError(413, 'Request is too large.')
+  if (length > max) throw new HttpError(413, 'Request is too large.')
   const text = await request.text()
-  if (text.length > MAX_BODY) throw new HttpError(413, 'Request is too large.')
+  if (text.length > max) throw new HttpError(413, 'Request is too large.')
   try {
     const body = text ? JSON.parse(text) : {}
     return body && typeof body === 'object' ? body : {}
@@ -168,11 +186,28 @@ async function found<T>(
   return result
 }
 
-const computeRequest = (body: Record<string, unknown>): ComputeRequest => ({
-  input: body['input'],
-  params: body['params'],
-  query: body['query'],
-})
+const plainObject = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+
+const computeRequest = (body: Record<string, unknown>): ComputeRequest => {
+  const state = plainObject(body['state'])
+  return {
+    input: body['input'],
+    params: body['params'],
+    query: body['query'],
+    ...(state
+      ? {
+          state: {
+            vars: plainObject(state['vars']),
+            session: plainObject(state['session']),
+            local: plainObject(state['local']),
+          },
+        }
+      : {}),
+  }
+}
 
 /** Authors may only touch their own projects; admins may touch all. */
 /** Authors build one app (with any number of pages, journeys and versions); admins have no limit. */
@@ -472,6 +507,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
             role,
             createdAt: existing?.createdAt ?? new Date().toISOString(),
           })
+          if (existing) await forgetRole(platform.redis, id, existing.userId)
           return json({ ok: true }, 201)
         }
         if (parts[3]) parts[3] = decodeURIComponent(parts[3])
@@ -489,10 +525,12 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
             role,
             createdAt: existing?.createdAt ?? new Date().toISOString(),
           })
+          await forgetRole(platform.redis, id, parts[3])
           return json({ ok: true })
         }
         if (parts[3] && method === 'DELETE') {
           await store.removeMember(id, parts[3])
+          await forgetRole(platform.redis, id, parts[3])
           return json({ ok: true })
         }
       }
@@ -630,6 +668,56 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         }
       }
 
+      // Test a saved API against the unsaved copy of the project; shows status, answer and the address used.
+      if (
+        parts[2] === 'apis' &&
+        parts[3] &&
+        parts[4] === 'test' &&
+        method === 'POST'
+      ) {
+        const body = await readBody(request)
+        const project = validProject(body['project'], id)
+        const api = project.apis?.find((item) => item.id === parts[3])
+        if (!api) throw new HttpError(404, 'That API is not in the project.')
+        const values = await secrets
+          .values(id)
+          .catch(() => ({}) as Record<string, string>)
+        const args =
+          body['args'] && typeof body['args'] === 'object'
+            ? (body['args'] as Record<string, unknown>)
+            : {}
+        const started = Date.now()
+        try {
+          const response = await sendApi(api, args, { secrets: values })
+          return json({
+            ...redact(response, values),
+            durationMs: Date.now() - started,
+            request: { method: api.method, url: safeUrl(api.url, values) },
+          })
+        } catch (error) {
+          return json({
+            ok: false,
+            status: (error as { status?: number }).status ?? 0,
+            error: redact(
+              error instanceof Error ? error.message : 'The call failed.',
+              values,
+            ),
+            durationMs: Date.now() - started,
+          })
+        }
+      }
+      // Store a file the way a journey's "Save uploaded file" step does, for testing in the builder.
+      if (parts[2] === 'files' && parts[3] === 'store' && method === 'POST') {
+        const body = await readBody(request, MAX_FILE_BODY)
+        return json(
+          await storeVisitorFile(
+            env,
+            url.origin,
+            id,
+            (body['file'] ?? {}) as Record<string, unknown>,
+          ),
+        )
+      }
       // Test a server flow against the unsaved copy of the project, as an all-roles visitor.
       if (
         parts[2] === 'flows' &&
@@ -686,7 +774,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       if (!job.projectId || !ID.test(job.projectId) || !job.flowId)
         throw new HttpError(400, 'Invalid job.')
       const project = await found(store.getSite(job.projectId))
-      // The job body is signed by QStash, so the visitor recorded when it was queued is trusted.
+      // The job body is signed by QStash. Scheduled jobs run as the system; background runs keep the
+      // identity of the person who triggered them, whose access was checked when they queued it.
+      const scheduled = job.source === 'schedule'
       const result = await runServerFlow({
         project,
         flowId: job.flowId,
@@ -694,9 +784,10 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         origin: url.origin,
         secrets,
         store,
-        source: job.source === 'schedule' ? 'schedule' : 'queue',
+        source: scheduled ? 'schedule' : 'queue',
         redis: platform.redis,
-        user: job.user ?? ANONYMOUS,
+        user: scheduled ? systemUser(project) : (job.user ?? ANONYMOUS),
+        system: true,
       })
       // A failed run answers 502 so QStash delivers it again with its own retries.
       return json(
@@ -754,6 +845,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         siteId,
         project.auth,
         store,
+        platform.redis,
       )
 
       if (parts.length === 2 && method === 'GET')
@@ -764,6 +856,77 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
             : 'public, max-age=30',
         })
       if (parts[2] === 'me' && method === 'GET') return json(visitor)
+      if (
+        parts[2] === 'apis' &&
+        parts[3] &&
+        parts[4] === 'call' &&
+        method === 'POST'
+      ) {
+        if (!(await allow(platform.redis, `api:${ip}`, 120, 60)))
+          throw new HttpError(
+            429,
+            'Too many requests. Please wait a moment and try again.',
+          )
+        const api = project.apis?.find((item) => item.id === parts[3])
+        // Server-only APIs cannot be called from pages.
+        if (!api || !api.browser)
+          throw new HttpError(404, 'This API is not available to pages.')
+        if (!allows(api.access, visitor))
+          throw new HttpError(
+            visitor.signedIn ? 403 : 401,
+            visitor.signedIn
+              ? 'You do not have access to this.'
+              : 'Please sign in first.',
+          )
+        const body = await readBody(request)
+        const args =
+          body['args'] && typeof body['args'] === 'object'
+            ? (body['args'] as Record<string, unknown>)
+            : {}
+        const values = await secrets
+          .values(project.id)
+          .catch(() => ({}) as Record<string, string>)
+        try {
+          return json(
+            redact(await sendApi(api, args, { secrets: values }), values),
+          )
+        } catch (error) {
+          throw new HttpError(
+            (error as { retryable?: boolean }).retryable === false ? 400 : 502,
+            redact(
+              error instanceof Error ? error.message : 'The call failed.',
+              values,
+            ),
+          )
+        }
+      }
+      if (parts[2] === 'files' && parts[3] === 'store' && method === 'POST') {
+        if (!(await allow(platform.redis, `file:${ip}`, 20, 60)))
+          throw new HttpError(
+            429,
+            'Too many uploads. Please wait a moment and try again.',
+          )
+        const body = await readBody(request, MAX_FILE_BODY)
+        // Only journeys that really save files can store them, and only for visitors allowed to run them.
+        const flow = project.flows.find((item) => item.id === body['flowId'])
+        if (!flow || !flow.steps.some((step) => step.type === 'storeFile'))
+          throw new HttpError(403, 'This page cannot store files.')
+        if (!allows(flow.access, visitor))
+          throw new HttpError(
+            visitor.signedIn ? 403 : 401,
+            visitor.signedIn
+              ? 'You do not have access to this.'
+              : 'Please sign in first.',
+          )
+        return json(
+          await storeVisitorFile(
+            env,
+            url.origin,
+            project.id,
+            (body['file'] ?? {}) as Record<string, unknown>,
+          ),
+        )
+      }
       if (
         parts[2] === 'flows' &&
         parts[3] &&
@@ -817,6 +980,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
             secrets,
             store,
             source: 'site',
+            storeFile: (file) =>
+              storeVisitorFile(env, url.origin, project.id, file),
             redis: platform.redis,
             user: visitor,
           }),

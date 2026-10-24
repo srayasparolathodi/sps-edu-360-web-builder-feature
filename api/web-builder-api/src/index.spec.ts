@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBlock, createProject } from '@spsedu360/engine/model'
 import { createFlow, createStep } from '@spsedu360/engine/flow'
+import { createApi } from '@spsedu360/engine/api'
 import worker, { Env, KVLike, canEdit } from './index'
 
 class MemoryKV implements KVLike {
@@ -674,6 +675,195 @@ describe('publishing pages, components and the app separately', () => {
     expect(response.status).toBe(409)
     expect((await response.json()).error).toMatch(
       /Live pages still show this component: “Home”/,
+    )
+  })
+})
+
+describe('saved APIs and journey file uploads', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  /** Records outgoing calls; answers the token endpoint and the data API. */
+  function fakeInternet() {
+    const calls: {
+      url: string
+      method: string
+      headers: Record<string, string>
+      body: string
+    }[] = []
+    vi.stubGlobal(
+      'fetch',
+      async (input: RequestInfo | URL, init: RequestInit = {}) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url
+        const headers = Object.fromEntries(new Headers(init.headers).entries())
+        calls.push({
+          url,
+          method: init.method ?? 'GET',
+          headers,
+          body: typeof init.body === 'string' ? init.body : '',
+        })
+        if (url === 'https://auth.test/token')
+          return Response.json({ access_token: 'tok-1', expires_in: 3600 })
+        if (url.startsWith('https://api.test/students/')) {
+          if (headers['authorization'] !== 'Bearer tok-1')
+            return new Response('nope', { status: 401 })
+          return Response.json({ id: url.split('/').pop(), name: 'Asha' })
+        }
+        return new Response('not found', { status: 404 })
+      },
+    )
+    return calls
+  }
+
+  async function appWithApis() {
+    env.CREDENTIALS_KEY = 'c'.repeat(40)
+    const project = createProject(
+      `Api App ${Math.random().toString(36).slice(2, 7)}`,
+    )
+    project.apis = [
+      {
+        ...createApi('Get student'),
+        id: 'get-student',
+        url: 'https://api.test/students/{id}',
+        params: [{ name: 'id', in: 'path', required: true }],
+        auth: {
+          type: 'oauth2',
+          tokenUrl: 'https://auth.test/token',
+          clientId: 'CLIENT_ID',
+          clientSecret: 'CLIENT_SECRET',
+        },
+      },
+      {
+        ...createApi('Payroll'),
+        id: 'payroll',
+        url: 'https://api.test/payroll',
+        params: [],
+        browser: false,
+      },
+    ]
+    await call(`/api/projects/${project.id}`, {
+      method: 'PUT',
+      admin: true,
+      body: JSON.stringify(project),
+    })
+    for (const [name, value] of [
+      ['CLIENT_ID', 'client-1'],
+      ['CLIENT_SECRET', 'secret-1'],
+    ])
+      await call(`/api/projects/${project.id}/secrets/${name}`, {
+        method: 'PUT',
+        admin: true,
+        body: JSON.stringify({ value }),
+      })
+    await publishAll(project)
+    return project
+  }
+
+  it('calls a saved API for a page through the server, with OAuth tokens fetched once', async () => {
+    const project = await appWithApis()
+    const calls = fakeInternet()
+    const first = await (
+      await call(`/api/sites/${project.id}/apis/get-student/call`, {
+        method: 'POST',
+        body: JSON.stringify({ args: { id: 42 } }),
+      })
+    ).json()
+    expect(first).toEqual({
+      status: 200,
+      ok: true,
+      body: { id: '42', name: 'Asha' },
+    })
+    await call(`/api/sites/${project.id}/apis/get-student/call`, {
+      method: 'POST',
+      body: JSON.stringify({ args: { id: 7 } }),
+    })
+    expect(
+      calls.filter((item) => item.url === 'https://auth.test/token'),
+    ).toHaveLength(1)
+    expect(calls[0].body).toContain('grant_type=client_credentials')
+    expect(calls[0].body).toContain('client_id=client-1')
+  })
+
+  it('keeps server-only APIs away from pages', async () => {
+    const project = await appWithApis()
+    fakeInternet()
+    expect(
+      (
+        await call(`/api/sites/${project.id}/apis/payroll/call`, {
+          method: 'POST',
+          body: '{}',
+        })
+      ).status,
+    ).toBe(404)
+    const site = await (await call(`/api/sites/${project.id}`)).json()
+    expect(site.apis.map((api: { id: string }) => api.id)).toEqual([
+      'get-student',
+    ])
+  })
+
+  it('tests an API from the builder and reports a missing parameter clearly', async () => {
+    const project = await appWithApis()
+    fakeInternet()
+    const body = (args: object) => JSON.stringify({ project, args })
+    const ok = await (
+      await call(`/api/projects/${project.id}/apis/get-student/test`, {
+        method: 'POST',
+        admin: true,
+        body: body({ id: 5 }),
+      })
+    ).json()
+    expect(ok).toMatchObject({
+      ok: true,
+      status: 200,
+      body: { id: '5' },
+      request: { method: 'GET', url: 'https://api.test/students/{id}' },
+    })
+    const missing = await (
+      await call(`/api/projects/${project.id}/apis/get-student/test`, {
+        method: 'POST',
+        admin: true,
+        body: body({}),
+      })
+    ).json()
+    expect(missing).toMatchObject({ ok: false })
+    expect(missing.error).toMatch(/"id" is required/)
+  })
+
+  it('stores visitor files only for journeys that save files', async () => {
+    const project = createProject(
+      `Files App ${Math.random().toString(36).slice(2, 7)}`,
+    )
+    const plain = createFlow('Plain')
+    const upload = createFlow('Upload')
+    upload.steps.push(createStep('storeFile', 'save'))
+    project.flows.push(plain, upload)
+    await call(`/api/projects/${project.id}`, {
+      method: 'PUT',
+      admin: true,
+      body: JSON.stringify(project),
+    })
+    await publishAll(project)
+    const file = {
+      name: 'report.pdf',
+      type: 'application/pdf',
+      size: 4,
+      dataUrl: 'data:application/pdf;base64,JVBERg==',
+    }
+    const send = (flowId: string) =>
+      call(`/api/sites/${project.id}/files/store`, {
+        method: 'POST',
+        body: JSON.stringify({ flowId, file }),
+      })
+    expect((await send(plain.id)).status).toBe(403)
+    // Allowed, but this test Worker has no bucket configured.
+    const noBucket = await send(upload.id)
+    expect(noBucket.status).toBe(503)
+    expect((await noBucket.json()).error).toMatch(
+      /file storage is not configured/,
     )
   })
 })

@@ -38,6 +38,7 @@ export interface AppSettings {
   variables: Project['variables']
   flows: Project['flows']
   dataSources: Project['dataSources']
+  apis?: Project['apis']
   auth?: Project['auth']
   slug?: string
   pageOrder: string[]
@@ -73,6 +74,7 @@ export function appSettings(project: Project): AppSettings {
     variables: project.variables,
     flows: project.flows,
     dataSources: project.dataSources,
+    ...(project.apis?.length ? { apis: project.apis } : {}),
     ...(project.auth ? { auth: project.auth } : {}),
     ...(project.slug ? { slug: project.slug } : {}),
     pageOrder: project.pages.map((page) => page.id),
@@ -187,7 +189,20 @@ export function expandBlocks(
         component && depth < 8
           ? expandBlocks(component.blocks, lookup, id, depth + 1)
           : []
-      return { ...block, id, children }
+      const defaults = Object.fromEntries(
+        (component?.inputs ?? [])
+          .filter((input) => input.default !== undefined)
+          .map((input) => [input.name, input.default]),
+      )
+      const props = { ...defaults, ...(block.props ?? {}) }
+      return {
+        ...block,
+        id,
+        children,
+        ...(Object.keys(props).length
+          ? { props: props as Block['props'] }
+          : {}),
+      }
     }
     return {
       ...block,

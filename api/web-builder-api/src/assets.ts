@@ -137,6 +137,21 @@ export class Bucket {
     })
   }
 
+  /** Uploads bytes straight from the Worker (used for files app users send through a journey). */
+  async put(
+    key: string,
+    bytes: Uint8Array<ArrayBuffer>,
+    type: string,
+  ): Promise<void> {
+    const response = await this.client.fetch(this.objectUrl(key), {
+      method: 'PUT',
+      body: bytes,
+      headers: { 'Content-Type': type || 'application/octet-stream' },
+    })
+    if (!response.ok)
+      throw new AssetError(502, `The file store answered ${response.status}.`)
+  }
+
   private objectUrl(key: string): string {
     return `${this.config.endpoint}/${encodeURIComponent(this.config.bucket)}/${key.split('/').map(encodeURIComponent).join('/')}`
   }
@@ -238,3 +253,50 @@ export const assetKey = (projectId: string, fileName: string) =>
   `projects/${projectId}/${fileName}`
 export const assetUrl = (projectId: string, fileName: string) =>
   `/api/files/${projectId}/${encodeURIComponent(fileName)}`
+
+/** Largest file an app user can send through a journey's "Save uploaded file" step. */
+export const MAX_VISITOR_FILE = 10 * 1024 * 1024
+
+/**
+ * Stores a file an app user chose (a data: URL from the browser) in the app's storage.
+ * Same type rules as author uploads; returns the file's public link.
+ */
+export async function storeVisitorFile(
+  env: Record<string, unknown>,
+  origin: string,
+  projectId: string,
+  file: { name?: unknown; type?: unknown; dataUrl?: unknown },
+): Promise<{ url: string; name: string; type: string; size: number }> {
+  const config = bucketConfig(env)
+  if (!config)
+    throw new AssetError(
+      503,
+      'This app cannot store files yet: its file storage is not configured.',
+    )
+  const match = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(
+    typeof file.dataUrl === 'string' ? file.dataUrl : '',
+  )
+  if (!match) throw new AssetError(400, 'No file was received.')
+  const type =
+    (typeof file.type === 'string' && file.type) ||
+    match[1] ||
+    'application/octet-stream'
+  const bytes = match[2]
+    ? Uint8Array.from(atob(match[3]), (char) => char.charCodeAt(0))
+    : new TextEncoder().encode(decodeURIComponent(match[3]))
+  const name = typeof file.name === 'string' && file.name ? file.name : 'file'
+  if (bytes.length > MAX_VISITOR_FILE)
+    throw new AssetError(
+      413,
+      `Files can be at most ${MAX_VISITOR_FILE / 1024 / 1024} MB.`,
+    )
+  checkUpload(name, type, bytes.length)
+  const fileName = `${crypto.randomUUID().slice(0, 8)}-${safeFileName(name)}`
+  await new Bucket(config).put(assetKey(projectId, fileName), bytes, type)
+  return {
+    url: `${origin}${assetUrl(projectId, fileName)}`,
+    name,
+    type,
+    size: bytes.length,
+  }
+}

@@ -26,6 +26,8 @@ export type StepType =
   | 'delay'
   | 'serverFlow'
   | 'query'
+  | 'api'
+  | 'storeFile'
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type NotifyLevel = 'info' | 'success' | 'warning' | 'error'
 
@@ -36,6 +38,15 @@ export interface ErrorPolicy {
   notify: boolean
   /** Text shown to visitors; {error} is replaced with the technical reason. */
   message: string
+}
+
+/** Where and how long a step's result is reused. */
+export interface StepCache {
+  /** vars: until the page reloads; session: until the tab closes; local: on this device. */
+  scope: VariableScope
+  ttlSeconds: number
+  /** Optional logic deciding what makes two calls "the same"; defaults to the step's inputs. */
+  key?: Logic
 }
 
 export interface FlowStep {
@@ -52,6 +63,12 @@ export interface FlowStep {
   onError: ErrorPolicy
   /** Also store the step's output in a variable. */
   saveAs?: { scope: VariableScope; name: string }
+  /**
+   * Reuse the result for a while instead of running the step again, e.g. cache an API answer
+   * in session storage for 10 minutes. The key defaults to the step's inputs (API arguments,
+   * address and body, query inputs), so different inputs are cached separately.
+   */
+  cache?: StepCache
   // compute
   logic?: Logic
   // http
@@ -78,6 +95,11 @@ export interface FlowStep {
   input?: Logic
   /** Queue the server flow and continue without waiting for its result. */
   background?: boolean
+  // api: a saved API of the app, called with these argument values (logic → object).
+  apiId?: string
+  args?: Logic
+  // storeFile: an uploaded file value ({ name, type, size, dataUrl }) to keep in the app's storage.
+  file?: Logic
   // query
   dataSource?: string
   query?: QueryDef
@@ -144,6 +166,17 @@ export interface FlowHooks {
     data: unknown,
     signal: AbortSignal,
   ): Promise<Record<string, unknown>[]>
+  /** Calls one of the app's saved APIs (always sent by the server, which holds the credentials). */
+  callApi?(
+    apiId: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<HttpResponse>
+  /** Stores a file a visitor chose in the app's storage; returns { url, name, type, size }. */
+  storeFile?(
+    file: { name: string; type: string; size: number; dataUrl: string },
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown>>
   /** Queues a server flow to run in the background; returns a message id. */
   enqueueFlow?(
     flowId: string,
@@ -151,6 +184,17 @@ export interface FlowHooks {
     signal: AbortSignal,
   ): Promise<string>
   onStep?(stepId: string, result: StepResult): void
+  /** Cached step results (see FlowStep.cache); without these hooks steps always run. */
+  cacheGet?(
+    scope: VariableScope,
+    key: string,
+  ): { found: boolean; value?: unknown }
+  cacheSet?(
+    scope: VariableScope,
+    key: string,
+    value: unknown,
+    ttlSeconds: number,
+  ): void
 }
 
 export type StepStatus =
@@ -245,6 +289,22 @@ export const STEP_TYPES: {
     sides: ['client'],
   },
   {
+    type: 'api',
+    label: 'Call a saved API',
+    icon: 'api',
+    description:
+      "Calls one of the app's APIs; its credentials stay on the server.",
+    sides: ['client', 'server'],
+  },
+  {
+    type: 'storeFile',
+    label: 'Save uploaded file',
+    icon: 'cloud_upload',
+    description:
+      "Keeps a file the visitor chose in the app's storage and gives its link.",
+    sides: ['client', 'server'],
+  },
+  {
     type: 'query',
     label: 'Query database',
     icon: 'database',
@@ -253,7 +313,10 @@ export const STEP_TYPES: {
   },
 ]
 
-export function createStep(type: StepType, id = crypto.randomUUID()): FlowStep {
+export function createStep(
+  type: StepType,
+  id: string = crypto.randomUUID(),
+): FlowStep {
   const label = STEP_TYPES.find((item) => item.type === type)?.label ?? type
   const step: FlowStep = {
     id,
@@ -292,6 +355,17 @@ export function createStep(type: StepType, id = crypto.randomUUID()): FlowStep {
   if (type === 'serverFlow') {
     step.flowId = ''
     step.input = {}
+  }
+  if (type === 'api') {
+    step.apiId = ''
+    step.args = {}
+    step.timeoutMs = 15_000
+    step.retry = { ...DEFAULT_RETRY, attempts: 3 }
+    step.breaker = { ...DEFAULT_BREAKER, enabled: true }
+  }
+  if (type === 'storeFile') {
+    step.file = { var: 'event.value' }
+    step.timeoutMs = 60_000
   }
   if (type === 'query') {
     step.dataSource = ''
@@ -339,6 +413,8 @@ const LOGIC_FIELDS = [
   'message',
   'to',
   'input',
+  'args',
+  'file',
 ] as const
 
 /** Returns human-readable problems; an empty list means the flow can run. */
@@ -370,6 +446,8 @@ export function validateFlow(flow: Flow, side?: 'client' | 'server'): string[] {
       problems.push(`"${step.name}" → fallback: ${problem}`)
     if (step.saveAs && !/^[a-zA-Z_][a-zA-Z0-9_]{0,60}$/.test(step.saveAs.name))
       problems.push(`"${step.name}" saves to an invalid variable name.`)
+    if (step.type === 'api' && !step.apiId)
+      problems.push(`"${step.name}" needs an API to call.`)
     if (step.type === 'query' && (!step.dataSource || !step.query?.from?.table))
       problems.push(`"${step.name}" needs a data source and a table.`)
     if (
@@ -379,6 +457,17 @@ export function validateFlow(flow: Flow, side?: 'client' | 'server'): string[] {
       problems.push(
         `"${step.name}" needs a variable name (letters, numbers, _).`,
       )
+    if (step.cache) {
+      if (
+        !['vars', 'session', 'local'].includes(step.cache.scope) ||
+        !(step.cache.ttlSeconds >= 1 && step.cache.ttlSeconds <= 2_592_000)
+      )
+        problems.push(
+          `"${step.name}" keeps its result between 1 second and 30 days, in this visit, the session or the device.`,
+        )
+      for (const problem of validateLogic(step.cache.key))
+        problems.push(`"${step.name}" → cache key: ${problem}`)
+    }
     if (step.retry.attempts < 1 || step.retry.attempts > 10)
       problems.push(`"${step.name}" retry attempts must be between 1 and 10.`)
   }
@@ -390,7 +479,7 @@ export function validateFlow(flow: Flow, side?: 'client' | 'server'): string[] {
   if (flow.trigger === 'schedule') {
     if (flow.runAt !== 'server')
       problems.push('Scheduled flows must run on the server.')
-    if (!/^S+(s+S+){4}$/.test(flow.schedule?.trim() ?? ''))
+    if (!/^\S+(\s+\S+){4}$/.test(flow.schedule?.trim() ?? ''))
       problems.push(
         'Enter a schedule with 5 parts, e.g. "0 2 * * *" (2am every day, UTC).',
       )
@@ -426,6 +515,16 @@ export function validateFlow(flow: Flow, side?: 'client' | 'server'): string[] {
   }
   for (const step of flow.steps) if (visit(step.id, [])) break
   return problems
+}
+
+/** Short, stable text for a cache key (FNV-1a). */
+function fingerprint(text: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return `${hash.toString(36)}${text.length.toString(36)}`
 }
 
 const isEmptyValue = (value: unknown): boolean =>
@@ -623,6 +722,68 @@ export async function runFlow(
           empty: step.queryResult === 'count' ? false : isEmptyValue(output),
         }
       }
+      case 'api': {
+        if (!hooks.callApi)
+          throw new StepError(
+            'Saved APIs are not available here.',
+            undefined,
+            false,
+          )
+        const raw = evaluate(step.args ?? {}, data)
+        const args =
+          raw && typeof raw === 'object' && !Array.isArray(raw)
+            ? (raw as Record<string, unknown>)
+            : {}
+        const response = await hooks.callApi(step.apiId ?? '', args, signal)
+        if (!response.ok) {
+          const detail =
+            response.status === 404
+              ? 'not found'
+              : response.status === 401 || response.status === 403
+                ? 'not authorized'
+                : response.status >= 500
+                  ? 'server error'
+                  : 'request rejected'
+          throw new StepError(
+            `The API answered ${response.status} (${detail}).`,
+            response.status,
+          )
+        }
+        const empty =
+          step.emptyWhen !== undefined && isLogic(step.emptyWhen)
+            ? !!evaluate(step.emptyWhen, { ...data, response: response.body })
+            : isEmptyValue(response.body)
+        return { output: response.body, empty }
+      }
+      case 'storeFile': {
+        if (!hooks.storeFile)
+          throw new StepError('Files can not be saved here.', undefined, false)
+        const value = evaluate(
+          step.file ?? { var: 'event.value' },
+          data,
+        ) as Record<string, unknown> | null
+        if (
+          !value ||
+          typeof value !== 'object' ||
+          typeof value['dataUrl'] !== 'string' ||
+          !value['dataUrl']
+        )
+          throw new StepError(
+            'No file was chosen, or the file is too large to send.',
+            undefined,
+            false,
+          )
+        const stored = await hooks.storeFile(
+          {
+            name: String(value['name'] ?? 'file'),
+            type: String(value['type'] ?? ''),
+            size: Number(value['size'] ?? 0),
+            dataUrl: value['dataUrl'] as string,
+          },
+          signal,
+        )
+        return { output: stored, empty: false }
+      }
       case 'serverFlow': {
         if (step.background) {
           if (!hooks.enqueueFlow)
@@ -652,6 +813,34 @@ export async function runFlow(
         return { output, empty: isEmptyValue(output) }
       }
     }
+  }
+
+  /** What decides that two runs of a step are "the same call". */
+  const defaultCacheKey = (step: FlowStep): Logic =>
+    step.type === 'api'
+      ? [step.apiId ?? '', step.args ?? null]
+      : step.type === 'http'
+        ? [step.method ?? 'GET', step.url ?? '', step.body ?? null]
+        : step.type === 'serverFlow'
+          ? [step.flowId ?? '', step.input ?? null]
+          : step.type === 'query'
+            ? [{ var: 'params' }, { var: 'query' }, { var: 'input' }]
+            : [step.logic ?? null]
+  const executeCached = async (
+    step: FlowStep,
+    signal: AbortSignal,
+  ): Promise<{ output: unknown; empty: boolean }> => {
+    const cache = step.cache
+    if (!cache || !hooks.cacheGet || !hooks.cacheSet)
+      return execute(step, signal)
+    const key = `${flow.id}:${step.id}:${fingerprint(JSON.stringify(evaluate(cache.key ?? defaultCacheKey(step), data) ?? null))}`
+    const hit = hooks.cacheGet(cache.scope, key)
+    if (hit.found) return { output: hit.value, empty: isEmptyValue(hit.value) }
+    const result = await execute(step, signal)
+    // "No data" answers are not kept, so the next run asks again.
+    if (!result.empty)
+      hooks.cacheSet(cache.scope, key, result.output, cache.ttlSeconds)
+    return result
   }
 
   const runStep = async (step: FlowStep): Promise<'ok' | 'stop'> => {
@@ -694,7 +883,7 @@ export async function runFlow(
       attempts++
       try {
         const { output, empty } = await withTimeout(
-          (signal) => execute(step, signal),
+          (signal) => executeCached(step, signal),
           step.timeoutMs,
           options.signal,
         )

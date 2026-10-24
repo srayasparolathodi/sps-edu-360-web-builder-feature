@@ -79,6 +79,10 @@ import {
 } from '@spsedu360/engine/access'
 import { MemberRecord } from '../services/api'
 import { PublishDialog } from './publish-dialog'
+import { ImportDialog } from '../landing/import-dialog'
+import { ApiEditor } from './api-editor'
+import { ApiDef, createApi } from '@spsedu360/engine/api'
+import { OUTPUT_PREFIX } from '@spsedu360/engine/model'
 import {
   expandProject,
   nameProblems,
@@ -1028,6 +1032,163 @@ export class BuilderPage {
       )
     }
   }
+  /** Add pages, components, journeys and variables from JSON written by an AI assistant or by hand. */
+  openImport(): void {
+    const before = this.store.project().pages.length
+    this.dialog.open(ImportDialog, {
+      width: '760px',
+      maxWidth: 'calc(100vw - 32px)',
+      autoFocus: false,
+      data: {
+        existing: this.store.project(),
+        apply: async (merged: Project) => {
+          this.store.change((project) => Object.assign(project, merged))
+          const first = this.store.project().pages[before]
+          if (first) this.selectPage(first.id)
+          this.snack.open(
+            'Added. Review the new pages, then save and publish them.',
+            'Close',
+            { duration: 5000 },
+          )
+        },
+      },
+    })
+  }
+
+  // ---- Saved APIs --------------------------------------------------------------------
+
+  readonly apiRows = computed(() => {
+    const pages = new Map(
+      this.store.project().pages.map((page) => [page.id, page.name]),
+    )
+    return (this.store.project().apis ?? []).map((api) => ({
+      api,
+      scope: api.pageId ? `Page: ${pages.get(api.pageId) ?? '?'}` : 'Whole app',
+      usedBy: this.store.apiUsage(api.id),
+    }))
+  })
+
+  /** Opens the API editor; a new API can belong to the current page. */
+  openApi(existing?: ApiDef, forPage = false): void {
+    const api = existing ?? {
+      ...createApi(`API ${(this.store.project().apis?.length ?? 0) + 1}`),
+      ...(forPage && !this.store.editingComponent()
+        ? { pageId: this.store.pageId() }
+        : {}),
+    }
+    this.dialog.open(ApiEditor, {
+      width: '820px',
+      maxWidth: 'calc(100vw - 32px)',
+      autoFocus: false,
+      data: {
+        api,
+        project: this.store.project(),
+        secretNames: this.store.secretNames(),
+        usedBy: existing ? this.store.apiUsage(existing.id) : [],
+        save: (saved: ApiDef) => this.store.saveApi(saved),
+        ...(existing
+          ? { remove: () => this.store.deleteApi(existing.id) }
+          : {}),
+      },
+    })
+  }
+
+  // ---- Component inputs and outputs ---------------------------------------------------
+
+  addPort(componentId: string, kind: 'inputs' | 'outputs'): void {
+    const component = this.store
+      .project()
+      .components?.find((item) => item.id === componentId)
+    if (!component) return
+    const list = [...(component[kind] ?? [])]
+    let n = list.length + 1
+    const base = kind === 'inputs' ? 'input' : 'output'
+    while (list.some((item) => item.name === `${base}${n}`)) n++
+    list.push({
+      name: `${base}${n}`,
+      label: `${kind === 'inputs' ? 'Input' : 'Output'} ${n}`,
+    })
+    this.store.setComponentPorts(componentId, { [kind]: list })
+  }
+  setPort(
+    componentId: string,
+    kind: 'inputs' | 'outputs',
+    index: number,
+    patch: { name?: string; label?: string; default?: unknown },
+  ): void {
+    const component = this.store
+      .project()
+      .components?.find((item) => item.id === componentId)
+    if (!component) return
+    const list = (component[kind] ?? []).map((item, i) =>
+      i === index ? { ...item, ...patch } : item,
+    )
+    if (
+      patch.name !== undefined &&
+      !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(patch.name)
+    ) {
+      this.snack.open(
+        'Names use letters, digits and _ (e.g. student).',
+        'Close',
+        { duration: 3000 },
+      )
+      return
+    }
+    if (
+      'default' in patch &&
+      (patch.default === '' || patch.default === undefined)
+    )
+      delete (list[index] as { default?: unknown }).default
+    this.store.setComponentPorts(componentId, { [kind]: list })
+  }
+  removePort(
+    componentId: string,
+    kind: 'inputs' | 'outputs',
+    index: number,
+  ): void {
+    const component = this.store
+      .project()
+      .components?.find((item) => item.id === componentId)
+    if (!component) return
+    this.store.setComponentPorts(componentId, {
+      [kind]: (component[kind] ?? []).filter((_, i) => i !== index),
+    })
+  }
+  portDefault(value: unknown): string {
+    return value === undefined || value === null
+      ? ''
+      : typeof value === 'object'
+        ? JSON.stringify(value)
+        : String(value)
+  }
+
+  /** The component a selected placement uses. */
+  readonly placedComponent = computed(() => {
+    const block = this.store.selected()
+    return block?.type === 'component'
+      ? this.store
+          .project()
+          .components?.find((item) => item.id === block.componentId)
+      : undefined
+  })
+  setProp(name: string, value: Logic | undefined): void {
+    const props = { ...(this.store.selected()?.props ?? {}) }
+    if (value === undefined) delete props[name]
+    else props[name] = value
+    this.patch('props', Object.keys(props).length ? props : undefined)
+  }
+  setOutputFlow(name: string, flowId: string): void {
+    const outputs = { ...(this.store.selected()?.outputs ?? {}) }
+    if (!flowId) delete outputs[name]
+    else outputs[name] = flowId
+    this.patch('outputs', Object.keys(outputs).length ? outputs : undefined)
+  }
+  /** Inside a component, events can raise its outputs. */
+  readonly componentOutputs = computed(
+    () => this.store.editingComponent()?.outputs ?? [],
+  )
+  readonly outputPrefix = OUTPUT_PREFIX
+
   openPublish(): void {
     this.dialog.open(PublishDialog, {
       data: { store: this.store },

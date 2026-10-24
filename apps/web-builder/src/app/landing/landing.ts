@@ -15,6 +15,7 @@ import { ApiService, ProjectSummary } from '../services/api'
 import { TEMPLATES, Template } from './templates'
 import { MatDialog } from '@angular/material/dialog'
 import { PeopleDialog } from './people-dialog'
+import { ImportDialog } from './import-dialog'
 import { BuilderUser } from '../services/api'
 
 @Component({
@@ -219,26 +220,21 @@ export class LandingPage {
     }
   }
 
-  async import(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement
-    const file = input.files?.[0]
-    if (!file) return
-    try {
-      if (file.size > 2_000_000)
-        throw new Error('Project exceeds the 2 MB limit.')
-      const project = parseProject(await file.text())
-      // Imported copies get a fresh id so they never overwrite another site.
-      const copy: Project = { ...project, id: crypto.randomUUID() }
-      await this.api.save(copy)
-      await this.router.navigate(['/builder', copy.id])
-    } catch (error) {
-      this.snack.open(
-        error instanceof Error ? error.message : 'Unable to import.',
-        'Close',
-        { duration: 6000 },
-      )
-    } finally {
-      input.value = ''
-    }
+  /** Import an app from JSON (pasted, uploaded, or written by an AI assistant from our instructions). */
+  openImport(startTab = 0): void {
+    this.dialog.open(ImportDialog, {
+      width: '760px',
+      maxWidth: 'calc(100vw - 32px)',
+      autoFocus: false,
+      data: {
+        startTab,
+        apply: async (project: Project) => {
+          // Imported apps always get a fresh id so they never overwrite another app.
+          const copy: Project = { ...project, id: crypto.randomUUID() }
+          await this.api.save(copy)
+          await this.router.navigate(['/builder', copy.id])
+        },
+      },
+    })
   }
 }

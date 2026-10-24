@@ -19,6 +19,7 @@ import {
 } from '@spsedu360/engine/model'
 import { Flow, createFlow } from '@spsedu360/engine/flow'
 import { createsCycle } from '@spsedu360/engine/publishing'
+import type { ApiDef } from '@spsedu360/engine/api'
 import { ApiService, ProjectSummary } from './services/api'
 
 @Injectable({ providedIn: 'root' })
@@ -163,6 +164,74 @@ export class BuilderStore {
     })
     this.selectedId.set(instance.id)
     return ''
+  }
+
+  /** Adds or replaces one of the app's saved APIs. */
+  saveApi(api: ApiDef): void {
+    this.change((project) => {
+      const apis = project.apis ?? []
+      const index = apis.findIndex((item) => item.id === api.id)
+      if (index >= 0) apis[index] = api
+      else apis.push(api)
+      project.apis = apis
+    })
+  }
+
+  deleteApi(id: string): void {
+    this.change((project) => {
+      project.apis = (project.apis ?? []).filter((api) => api.id !== id)
+      if (!project.apis.length) delete project.apis
+    })
+  }
+
+  /** Names of flows with a step calling this API. */
+  apiUsage(id: string): string[] {
+    return this.project()
+      .flows.filter((flow) =>
+        flow.steps.some((step) => step.type === 'api' && step.apiId === id),
+      )
+      .map((flow) => flow.name)
+  }
+
+  /** Changes a component's inputs or outputs; placements drop values for removed inputs. */
+  setComponentPorts(
+    id: string,
+    ports: {
+      inputs?: ComponentDef['inputs']
+      outputs?: ComponentDef['outputs']
+    },
+  ): void {
+    this.change((project) => {
+      const component = project.components?.find((item) => item.id === id)
+      if (!component) return
+      for (const key of ['inputs', 'outputs'] as const) {
+        if (!(key in ports)) continue
+        const list = ports[key]
+        if (list?.length)
+          (component as unknown as Record<string, unknown>)[key] = list
+        else delete component[key]
+      }
+      const inputs = new Set(
+        (component.inputs ?? []).map((input) => input.name),
+      )
+      const outputs = new Set(
+        (component.outputs ?? []).map((output) => output.name),
+      )
+      const trim = (blocks: Block[]) =>
+        blocks.forEach((block) => {
+          if (block.type === 'component' && block.componentId === id) {
+            if (block.props)
+              for (const name of Object.keys(block.props))
+                if (!inputs.has(name)) delete block.props[name]
+            if (block.outputs)
+              for (const name of Object.keys(block.outputs))
+                if (!outputs.has(name)) delete block.outputs[name]
+          }
+          trim(block.children)
+        })
+      for (const page of project.pages) trim(page.blocks)
+      for (const other of project.components ?? []) trim(other.blocks)
+    })
   }
 
   renameComponent(id: string, name: string): void {

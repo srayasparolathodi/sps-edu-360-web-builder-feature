@@ -63,6 +63,12 @@ export class LiveBlock {
 
   readonly view = computed(() => this.runtime.view(this.block(), this.scope()))
   readonly isContainer = computed(() => isContainer(this.block().type))
+  /** Inside a placed component: its inputs as props.*, and the placement for raising outputs. */
+  readonly componentScope = computed(() => ({
+    ...this.scope(),
+    props: this.runtime.componentProps(this.block(), this.scope()),
+    __component: this.block(),
+  }))
   readonly modalOpen = computed(() => {
     const block = this.block()
     if (block.type !== 'modal') return false

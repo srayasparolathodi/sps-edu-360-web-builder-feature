@@ -27,7 +27,13 @@ export function variableSuggestions(
     'event.form',
     'event.item',
     'page.name',
+    'page.path',
     'query.',
+    'user.signedIn',
+    'user.id',
+    'user.email',
+    'user.name',
+    'user.roles',
   ])
     names.add(name)
   return [...names]

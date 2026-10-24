@@ -3,6 +3,7 @@ import { Dialect, SchemaMap, validateQuery } from './query'
 import { AccessRule, SiteAuth } from './access'
 import { slugProblem } from './address'
 import { Logic, validateLogic } from './logic'
+import { ApiDef, validateApi } from './api'
 
 export const BLOCKS = [
   {
@@ -370,6 +371,8 @@ export interface VariableDef {
   scope: VariableScope
   initial: unknown
   description: string
+  /** Belongs to the signed-in user: cleared when someone signs in or out, or another person uses the device. */
+  perUser?: boolean
 }
 
 /** A database the author connected. The connection URL lives in a credential, never in the project. */
@@ -533,13 +536,40 @@ export interface Block {
   access?: AccessRule
   /** Component blocks: which of the app's reusable components is placed here. */
   componentId?: string
+  /** Component blocks: values for the component's inputs (logic or plain values), read inside as props.<name>. */
+  props?: Record<string, Logic>
+  /** Component blocks: flow to run for each of the component's outputs. */
+  outputs?: Record<string, string>
 }
+
+/** A value a component receives where it is placed, e.g. the student a "Student card" shows. */
+export interface ComponentInput {
+  name: string
+  label: string
+  /** Used when a placement gives no value. */
+  default?: unknown
+  description?: string
+}
+
+/** Something a component reports to the page using it, e.g. "selected" when its button is clicked. */
+export interface ComponentOutput {
+  name: string
+  label: string
+  description?: string
+}
+
+/** Block events inside a component can raise one of its outputs with this flow value. */
+export const OUTPUT_PREFIX = '@output:'
 
 /** A reusable piece of page, built once and placed on any number of pages of the same app. */
 export interface ComponentDef {
   id: string
   name: string
   blocks: Block[]
+  /** Values each placement provides (props.<name> inside the component). */
+  inputs?: ComponentInput[]
+  /** Events the component raises for the page to handle. */
+  outputs?: ComponentOutput[]
 }
 export interface Page {
   id: string
@@ -567,6 +597,8 @@ export interface Project {
   slug?: string
   /** Reusable components of this app. */
   components?: ComponentDef[]
+  /** Reusable APIs of this app (some may belong to one page). */
+  apis?: ApiDef[]
   updatedAt: string
 }
 export const STYLE_PROPERTIES = [
@@ -908,6 +940,8 @@ function checkAccess(access: any, where: string): void {
     throw new Error(`${where} has invalid access settings.`)
 }
 const VAR_NAME = /^[a-zA-Z_][a-zA-Z0-9_]{0,60}$/
+/** Component input and output names. */
+const NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
 const SCOPES = ['vars', 'session', 'local']
 
 /** Upgrades a version 1 project (slug-based pages, no logic) in place. */
@@ -960,8 +994,40 @@ export function parseProject(json: string): Project {
           !ID.test(block.componentId)
         )
           throw new Error('A placed component is missing its component.')
+        if (block.props !== undefined) {
+          if (
+            !block.props ||
+            typeof block.props !== 'object' ||
+            Array.isArray(block.props)
+          )
+            throw new Error(`"${block.name}" has invalid input values.`)
+          for (const [name, value] of Object.entries(block.props)) {
+            if (!NAME.test(name))
+              throw new Error(`"${block.name}" has an invalid input name.`)
+            const problems = validateLogic(value as Logic)
+            if (problems.length)
+              throw new Error(`"${block.name}" → input ${name}: ${problems[0]}`)
+          }
+        }
+        if (block.outputs !== undefined) {
+          if (
+            !block.outputs ||
+            typeof block.outputs !== 'object' ||
+            Array.isArray(block.outputs)
+          )
+            throw new Error(`"${block.name}" has invalid outputs.`)
+          for (const [name, flowId] of Object.entries(block.outputs))
+            if (!NAME.test(name) || !flowIds.has(flowId as string))
+              throw new Error(
+                `"${block.name}" runs a flow that no longer exists for its "${name}" output.`,
+              )
+        }
         instances.push(block)
-      } else if (block.componentId !== undefined)
+      } else if (
+        block.componentId !== undefined ||
+        block.props !== undefined ||
+        block.outputs !== undefined
+      )
         throw new Error('Invalid block.')
       ids.add(block.id)
       for (const key of [
@@ -1017,7 +1083,13 @@ export function parseProject(json: string): Project {
         for (const [event, flowId] of Object.entries(block.on ?? {}))
           if (
             !EVENTS.some((item) => item.key === event) ||
-            (flowId !== undefined && !flowIds.has(flowId as string))
+            (flowId !== undefined &&
+              !flowIds.has(flowId as string) &&
+              !(
+                typeof flowId === 'string' &&
+                flowId.startsWith(OUTPUT_PREFIX) &&
+                NAME.test(flowId.slice(OUTPUT_PREFIX.length))
+              ))
           )
             throw new Error(
               `"${block.name}" runs a flow that no longer exists.`,
@@ -1132,7 +1204,8 @@ export function parseProject(json: string): Project {
       !VAR_NAME.test(variable.name ?? '') ||
       !SCOPES.includes(variable.scope) ||
       typeof variable.description !== 'string' ||
-      names.has(`${variable.scope}.${variable.name}`)
+      names.has(`${variable.scope}.${variable.name}`) ||
+      (variable.perUser !== undefined && typeof variable.perUser !== 'boolean')
     )
       throw new Error(`Variable "${variable?.name}" is invalid or duplicated.`)
     names.add(`${variable.scope}.${variable.name}`)
@@ -1190,6 +1263,27 @@ export function parseProject(json: string): Project {
       )
         throw new Error('Invalid or duplicate component.')
       ids.add(component.id)
+      for (const [list, what] of [
+        [component.inputs, 'input'],
+        [component.outputs, 'output'],
+      ] as const) {
+        if (list === undefined) continue
+        if (!Array.isArray(list) || list.length > 30)
+          throw new Error(`Component "${component.name}" has invalid ${what}s.`)
+        const seen = new Set<string>()
+        for (const item of list as { name: string; label: string }[]) {
+          if (
+            !item ||
+            !NAME.test(item.name) ||
+            seen.has(item.name) ||
+            typeof item.label !== 'string'
+          )
+            throw new Error(
+              `Component "${component.name}": ${what} names use letters, digits and _, and must be unique.`,
+            )
+          seen.add(item.name)
+        }
+      }
       validateBlocks(component.blocks, 0)
     }
   }
@@ -1198,11 +1292,21 @@ export function parseProject(json: string): Project {
   const componentIds = new Set<string>(
     (project.components ?? []).map((component: ComponentDef) => component.id),
   )
-  for (const instance of instances)
+  for (const instance of instances) {
     if (!instance.children.length && !componentIds.has(instance.componentId!))
       throw new Error(
         `"${instance.name}" uses a component that does not exist.`,
       )
+    const component = (project.components as ComponentDef[] | undefined)?.find(
+      (item) => item.id === instance.componentId,
+    )
+    if (component)
+      for (const name of Object.keys(instance.props ?? {}))
+        if (!component.inputs?.some((input) => input.name === name))
+          throw new Error(
+            `"${instance.name}" sets "${name}", which "${component.name}" does not have as an input.`,
+          )
+  }
   for (const component of (project.components ?? []) as ComponentDef[]) {
     const used = new Set<string>()
     const walk = (blocks: Block[], depth: number): void => {
@@ -1228,6 +1332,31 @@ export function parseProject(json: string): Project {
     if (used.has(component.id))
       throw new Error(`Component "${component.name}" contains itself.`)
   }
+  const apiIds = new Set<string>()
+  if (project.apis !== undefined) {
+    if (!Array.isArray(project.apis) || project.apis.length > 100)
+      throw new Error('Invalid APIs.')
+    const pageIdSet = new Set(project.pages.map((page: Page) => page.id))
+    for (const api of project.apis as ApiDef[]) {
+      const problems = validateApi(api)
+      if (problems.length) throw new Error(problems[0])
+      if (ids.has(api.id) || apiIds.has(api.id))
+        throw new Error(`API "${api.name}" has a duplicate id.`)
+      if (api.pageId !== undefined && !pageIdSet.has(api.pageId))
+        throw new Error(
+          `API "${api.name}" belongs to a page that no longer exists.`,
+        )
+      for (const problem of [
+        ...validateLogic(api.body),
+        ...validateLogic(api.auth.token),
+        ...validateLogic(api.auth.headers),
+        ...validateLogic(api.auth.hmacMessage),
+      ])
+        throw new Error(`API "${api.name}": ${problem}`)
+      checkAccess(api.access, `API "${api.name}"`)
+      apiIds.add(api.id)
+    }
+  }
   for (const flow of project.flows) {
     if (
       !flow ||
@@ -1251,6 +1380,11 @@ export function parseProject(json: string): Project {
     checkAccess(flow.access, `Flow "${flow.name}"`)
     const problems = validateFlow(flow)
     if (problems.length) throw new Error(`Flow "${flow.name}": ${problems[0]}`)
+    for (const step of flow.steps)
+      if (step.type === 'api' && !apiIds.has(step.apiId ?? ''))
+        throw new Error(
+          `Flow "${flow.name}" → "${step.name}" calls an API that no longer exists.`,
+        )
     for (const step of flow.steps) {
       if (step.type !== 'query') continue
       const source = sources.get(step.dataSource)

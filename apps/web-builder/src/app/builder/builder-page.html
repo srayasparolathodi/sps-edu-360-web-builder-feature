@@ -84,7 +84,10 @@
         </div></mat-tab>
         <mat-tab label="Pages"><div class="panel-content page-list">
           @for (page of store.project().pages; track page.id) { <button mat-button [class.active-layer]="store.pageId() === page.id" (click)="selectPage(page.id)"><mat-icon>{{ pathParams(page.path).length ? 'route' : $first ? 'home' : 'description' }}</mat-icon><span class="page-entry"><span>{{ page.name }}</span><code>/{{ page.path }}</code></span></button> }
-          <button mat-stroked-button (click)="store.addPage()"><mat-icon>add</mat-icon>Add page</button>
+          <div class="inline-actions">
+            <button mat-stroked-button (click)="store.addPage()"><mat-icon>add</mat-icon>Add page</button>
+            <button mat-stroked-button (click)="openImport()"><mat-icon>auto_awesome</mat-icon>Add pages with AI</button>
+          </div>
           @for (issue of nameIssues(); track issue) { <p class="logic-result failed" role="alert"><mat-icon>error_outline</mat-icon>{{ issue }}</p> }
           @if (store.editingComponent()) { <p class="muted">You are editing a component. Pick a page above to edit it.</p> } @else {
           <mat-form-field appearance="outline"><mat-label>Page name</mat-label><input matInput [ngModel]="store.page().name" (ngModelChange)="pageName($event)"></mat-form-field>
@@ -114,6 +117,27 @@
             <div class="variable-card component-card" [class.active-layer]="store.pageId() === row.component.id">
               <mat-form-field appearance="outline" subscriptSizing="dynamic"><mat-label>Component name</mat-label><input matInput [ngModel]="row.component.name" (ngModelChange)="componentName(row.component.id, $event)"></mat-form-field>
               <span class="muted">{{ row.pages.length ? 'Used on ' + row.pages.join(', ') : 'Not used on any page yet' }}</span>
+              <mat-expansion-panel class="ports-panel">
+                <mat-expansion-panel-header><mat-panel-title>Inputs {{ row.component.inputs?.length ?? 0 }} · Outputs {{ row.component.outputs?.length ?? 0 }}</mat-panel-title></mat-expansion-panel-header>
+                <p class="muted">Inputs are values each placement gives it (read inside as <code>props.name</code>). Outputs let the page react, e.g. "selected".</p>
+                @for (input of row.component.inputs ?? []; track $index; let i = $index) {
+                  <div class="port-row">
+                    <mat-form-field appearance="outline" subscriptSizing="dynamic"><mat-label>Input name</mat-label><input matInput [ngModel]="input.name" (change)="setPort(row.component.id, 'inputs', i, { name: $any($event.target).value })"></mat-form-field>
+                    <mat-form-field appearance="outline" subscriptSizing="dynamic"><mat-label>Default</mat-label><input matInput [ngModel]="portDefault(input.default)" (change)="setPort(row.component.id, 'inputs', i, { default: $any($event.target).value })"></mat-form-field>
+                    <button mat-icon-button [attr.aria-label]="'Remove input ' + input.name" (click)="removePort(row.component.id, 'inputs', i)"><mat-icon>close</mat-icon></button>
+                  </div>
+                }
+                @for (output of row.component.outputs ?? []; track $index; let i = $index) {
+                  <div class="port-row">
+                    <mat-form-field appearance="outline" subscriptSizing="dynamic"><mat-label>Output name</mat-label><input matInput [ngModel]="output.name" (change)="setPort(row.component.id, 'outputs', i, { name: $any($event.target).value, label: $any($event.target).value })"></mat-form-field>
+                    <button mat-icon-button [attr.aria-label]="'Remove output ' + output.name" (click)="removePort(row.component.id, 'outputs', i)"><mat-icon>close</mat-icon></button>
+                  </div>
+                }
+                <div class="inline-actions">
+                  <button mat-button (click)="addPort(row.component.id, 'inputs')"><mat-icon>input</mat-icon>Add input</button>
+                  <button mat-button (click)="addPort(row.component.id, 'outputs')"><mat-icon>output</mat-icon>Add output</button>
+                </div>
+              </mat-expansion-panel>
               <div class="variable-foot">
                 <button mat-button (click)="selectPage(row.component.id)"><mat-icon>edit</mat-icon>Edit</button>
                 <button mat-button [disabled]="store.pageId() === row.component.id" (click)="placeComponent(row.component.id)"><mat-icon>add_to_photos</mat-icon>Place here</button>
@@ -121,6 +145,20 @@
               </div>
             </div>
           } @empty { <p class="muted">No components yet.</p> }
+        </div></mat-tab>
+        <mat-tab label="APIs"><div class="panel-content page-list">
+          <p class="muted">Add each external API once — address, parameters and authorization — then call it from any journey with the <strong>Call a saved API</strong> step. Credentials stay on the server.</p>
+          <div class="inline-actions">
+            <button mat-stroked-button (click)="openApi()"><mat-icon>add</mat-icon>New app API</button>
+            <button mat-stroked-button [disabled]="!!store.editingComponent()" (click)="openApi(undefined, true)" matTooltip="Only offered to journeys of this page"><mat-icon>note_add</mat-icon>New API for this page</button>
+          </div>
+          @for (row of apiRows(); track row.api.id) {
+            <button class="api-row" type="button" (click)="openApi(row.api)">
+              <span class="method-chip" [attr.data-method]="row.api.method">{{ row.api.method }}</span>
+              <span class="api-row-text"><strong>{{ row.api.name }}</strong><span class="muted">{{ row.scope }} · {{ row.api.auth.type === 'none' ? 'no authorization' : row.api.auth.type }}{{ row.usedBy.length ? ' · used by ' + row.usedBy.join(', ') : '' }}</span></span>
+              <mat-icon>chevron_right</mat-icon>
+            </button>
+          } @empty { <p class="muted">No APIs yet.</p> }
         </div></mat-tab>
         <mat-tab label="Data"><div class="panel-content variable-list">
           <p class="muted">Variables hold values that blocks show and flows change. <strong>Visit</strong> resets on reload, <strong>Session</strong> lasts until the tab closes, <strong>Device</strong> is kept in local storage.</p>
@@ -131,6 +169,7 @@
                 <mat-form-field appearance="outline"><mat-label>Kept for</mat-label><mat-select [value]="variable.scope" (selectionChange)="store.updateVariable(variable.id, { scope: $event.value })"><mat-option value="vars">Visit</mat-option><mat-option value="session">Session</mat-option><mat-option value="local">Device</mat-option></mat-select></mat-form-field>
               </div>
               <mat-form-field appearance="outline"><mat-label>Starting value</mat-label><input matInput [value]="variableInitial(variable)" (change)="setVariableInitial(variable, $any($event.target).value)"><mat-hint>Text, a number, true/false, or JSON like [1,2]</mat-hint></mat-form-field>
+              <mat-slide-toggle [checked]="!!variable.perUser" (change)="store.updateVariable(variable.id, { perUser: $event.checked || undefined })" matTooltip="Cleared when someone signs in or out, or a different person uses this device">Belongs to the signed-in user</mat-slide-toggle>
               <div class="variable-foot"><code>{{ variable.scope }}.{{ variable.name }}</code><button mat-icon-button [attr.aria-label]="'Delete ' + variable.name" (click)="store.deleteVariable(variable.id)"><mat-icon>delete_outline</mat-icon></button></div>
             </div>
           } @empty { <p class="muted">No variables yet.</p> }
@@ -272,6 +311,21 @@
         <mat-tab-group mat-stretch-tabs="false" class="dense-tabs">
           <mat-tab label="Content"><div class="panel-content property-fields">
             <mat-form-field appearance="outline"><mat-label>Element name</mat-label><input matInput [ngModel]="block.name" (ngModelChange)="patch('name', $event)"></mat-form-field>
+            @if (placedComponent(); as component) {
+              <h3 class="panel-title">“{{ component.name }}” inputs</h3>
+              @for (input of component.inputs ?? []; track input.name) {
+                <logic-field [label]="input.label || input.name" [hint]="'Read inside the component as props.' + input.name + (input.default !== undefined ? ' · default ' + portDefault(input.default) : '')" [value]="$any(block.props)?.[input.name]" [variables]="variables()" [sample]="sample()" (valueChange)="setProp(input.name, $event)" />
+              } @empty { <p class="muted">This component has no inputs. Add them on the Components tab.</p> }
+              @if (component.outputs?.length) {
+                <h3 class="panel-title">When the component reports…</h3>
+                @for (output of component.outputs ?? []; track output.name) {
+                  <mat-form-field appearance="outline"><mat-label>{{ output.label || output.name }}</mat-label>
+                    <mat-select [value]="$any(block.outputs)?.[output.name] ?? ''" (selectionChange)="setOutputFlow(output.name, $event.value)"><mat-option value="">Do nothing</mat-option>@for (flow of store.project().flows; track flow.id) { <mat-option [value]="flow.id">{{ flow.name }}</mat-option> }</mat-select>
+                    <mat-hint>The journey gets event.value (this placement's inputs).</mat-hint>
+                  </mat-form-field>
+                }
+              }
+            }
             @if (!isContainer(block.type) || block.type === 'modal') {
               <mat-form-field appearance="outline"><mat-label>{{ ['countdown'].includes(block.type) ? 'Target date (YYYY-MM-DD)' : block.type === 'pagination' ? 'Total pages' : block.type === 'richtext' ? 'Text (Markdown)' : 'Text / placeholder' }}</mat-label><textarea matInput [rows]="['richtext', 'code'].includes(block.type) ? 8 : 3" [ngModel]="block.text" (ngModelChange)="patch('text', $event)"></textarea></mat-form-field>
               <mat-form-field appearance="outline"><mat-label>Label / caption</mat-label><input matInput [ngModel]="block.label" (ngModelChange)="patch('label', $event)"></mat-form-field>
@@ -403,10 +457,11 @@
             @for (event of events; track event.key) {
               <div class="event-row">
                 <mat-form-field appearance="outline"><mat-label>{{ event.label }}</mat-label>
-                  <mat-select [value]="$any(block.on)?.[event.key] ?? ''" (selectionChange)="setEvent(event.key, $event.value)"><mat-option value="">Do nothing</mat-option>@for (flow of store.project().flows; track flow.id) { <mat-option [value]="flow.id">Run “{{ flow.name }}”</mat-option> }</mat-select>
+                  <mat-select [value]="$any(block.on)?.[event.key] ?? ''" (selectionChange)="setEvent(event.key, $event.value)"><mat-option value="">Do nothing</mat-option>@for (output of componentOutputs(); track output.name) { <mat-option [value]="outputPrefix + output.name">Report “{{ output.label || output.name }}” to the page</mat-option> }@for (flow of store.project().flows; track flow.id) { <mat-option [value]="flow.id">Run “{{ flow.name }}”</mat-option> }</mat-select>
                   @if (event.hint) { <mat-hint>{{ event.hint }}</mat-hint> }
                 </mat-form-field>
-                @if ($any(block.on)?.[event.key]; as flowId) { <button mat-icon-button matTooltip="Edit flow" aria-label="Edit flow" (click)="openFlow(flowId)"><mat-icon>edit</mat-icon></button> }
+                @if ($any(block.on)?.[event.key]?.startsWith(outputPrefix)) { <mat-icon class="fx-badge" matTooltip="Reported to the page using this component">output</mat-icon> }
+                @else if ($any(block.on)?.[event.key]; as flowId) { <button mat-icon-button matTooltip="Edit flow" aria-label="Edit flow" (click)="openFlow(flowId)"><mat-icon>edit</mat-icon></button> }
                 @else { <button mat-icon-button matTooltip="Create a flow for this event" aria-label="Create flow" (click)="createFlowFor(event.key)"><mat-icon>add_circle_outline</mat-icon></button> }
               </div>
             }
