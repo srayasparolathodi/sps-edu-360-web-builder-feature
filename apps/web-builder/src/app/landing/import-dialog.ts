@@ -209,6 +209,24 @@ export interface ImportDialogData {
                   </ul>
                 </mat-expansion-panel>
               }
+              @if (checked.notes.length) {
+                <mat-expansion-panel class="import-warnings" expanded>
+                  <mat-expansion-panel-header
+                    ><mat-panel-title
+                      ><mat-icon>fact_check</mat-icon
+                      >{{ checked.notes.length }} thing{{
+                        checked.notes.length === 1 ? '' : 's'
+                      }}
+                      for you to check</mat-panel-title
+                    ></mat-expansion-panel-header
+                  >
+                  <ul>
+                    @for (note of checked.notes; track note) {
+                      <li>{{ note }}</li>
+                    }
+                  </ul>
+                </mat-expansion-panel>
+              }
               @if (!adding) {
                 <mat-form-field appearance="outline" class="full-width">
                   <mat-label>App name</mat-label>

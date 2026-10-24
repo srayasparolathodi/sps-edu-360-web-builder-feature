@@ -177,6 +177,16 @@ Let me know if you need changes.`
     expect(() => importJson({ name: 'Empty' })).toThrow(ImportError)
     expect(() => importJson({ name: 'Empty' })).toThrow(/no pages/)
   })
+
+  it("passes the assistant's notes to the author", () => {
+    const { notes, warnings } = importJson({
+      pages: [{ name: 'Home', path: '', blocks: [] }],
+      notes: ['  Fees were not on the site.  ', '', 42],
+    })
+    expect(notes).toEqual(['Fees were not on the site.', '42'])
+    expect(warnings).toEqual([])
+    expect(importJson(EXAMPLE_APP).notes).toHaveLength(1)
+  })
 })
 
 describe('aiPrompt', () => {
@@ -188,6 +198,14 @@ describe('aiPrompt', () => {
     for (const step of STEP_TYPES) expect(prompt).toContain(`- ${step.type}:`)
     expect(prompt).toContain('A school website with admissions')
     expect(prompt).toContain('ONE JSON object')
+    expect(prompt).toContain('# Content truthfulness')
+    expect(prompt).toContain('# Where each piece of work happens')
+  })
+
+  it('shows the parseJson list example as valid JSON inside a JSON string', () => {
+    expect(aiPrompt()).toContain(
+      '{ "parseJson": [ "[{\\"title\\":\\"…\\"}]" ] }',
+    )
   })
 
   it('lists the existing app when adding pages to it', () => {

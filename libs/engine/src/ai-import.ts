@@ -54,6 +54,8 @@ export interface ImportResult {
   project: Project
   /** Everything that was filled in or corrected, in plain words. */
   warnings: string[]
+  /** What the assistant could not find or had to assume, for the author to check. */
+  notes: string[]
   summary: {
     pages: number
     components: number
@@ -1469,6 +1471,10 @@ export function importJson(
   return {
     project: checked,
     warnings: ctx.warnings,
+    notes: (Array.isArray(app['notes']) ? app['notes'] : [])
+      .map((note: unknown) => str(note).trim().slice(0, 300))
+      .filter(Boolean)
+      .slice(0, 40),
     summary: {
       pages: pages.length,
       components: components.length,
@@ -1779,6 +1785,9 @@ export const EXAMPLE_APP = {
       description: 'Grade chosen in the admission form',
     },
   ],
+  notes: [
+    'The application form posts to a test address; connect the admissions API before publishing.',
+  ],
 }
 
 function existingSummary(project: Project): string {
@@ -1805,18 +1814,102 @@ export function aiPrompt(
 ): string {
   const adding = !!options.existing
   const operators = OPERATORS.map((operator) => operator.op).join(' ')
-  return `You are generating an app definition for "Page Studio", a no-code web app builder (SPS EDU 360).
-Your answer is imported by a program, so it must follow these rules exactly.
+  return `You are a senior web designer and front-end engineer generating an app definition for "Page Studio", a no-code web app builder (SPS EDU 360).
+A program imports your answer, renders every page from it and runs its journeys, so it must follow these rules exactly.
 
 # Output rules
 - Answer with ONE JSON object and nothing else: no explanation, no Markdown, no code fences, no comments, no trailing commas.
-- Use only the block types, step types, fields and values listed below. Unknown ones are dropped.
-- Use real, specific content (headings, labels, sample rows) from the requirements and designs — never "Lorem ipsum".
-- Images: use the image addresses given to you; otherwise use https://images.unsplash.com photos that fit the subject.
-- If something cannot be built with these blocks, get as close as possible and keep the JSON valid.
+- Use only the block types, step types, fields and values listed below. Unknown ones are dropped silently.
+- Put what the author must know in the top-level "notes" list, one short sentence each: facts you could not find,
+  assumptions, placeholders to fill, things these blocks cannot do, settings to configure. The author sees it after importing.
+  Never put such remarks in page text.
+- If something cannot be built with these blocks, get as close as possible, keep the JSON valid and say so in "notes".
 
 # What to build
-${options.requirements?.trim() || '(The user describes what they need below, possibly with screenshots or Figma designs. If designs are attached, match their layout, order, text, colours and spacing as closely as the blocks allow.)'}
+${options.requirements?.trim() || '(The author describes what they need below, possibly with website addresses, screenshots, Figma designs or documents.)'}
+
+# How to work (do this before writing the JSON; do not show it)
+1. Collect every source the author gave: website addresses, screenshots, Figma frames, documents and text. Together they are the specification.
+2. Website address: if you can browse, open the home page AND every page linked from the main menu, its sub-menus, the top bar
+   and the footer. If you cannot open it, use only what the author pasted (never your memory of the site) and add a note saying so.
+   From each page take: the exact text (headings, paragraphs, button and menu labels), the order of sections, contact details,
+   people and their titles, dates, numbers, image and logo addresses (absolute https URLs), maps, videos, social links and documents.
+   From its styles take the theme: brand colour, accent colour, page and section backgrounds, text colour, heading weight,
+   corner roundness and shadow style.
+3. Screenshots and designs: read every word exactly as shown, keep the sections in the same order top to bottom,
+   estimate colours as hex values, and match sizes and spacing as closely as the blocks allow.
+4. Make an inventory: every page (one page per menu entry, sub-menu entry and footer link that has its own page on the source),
+   every section of each page, every form, every list of records, and every interaction (sliders, tabs, dropdowns, filters,
+   search, counters, pop-ups).
+5. Map each item to blocks and journeys with the rules below, write the JSON, then run the final check.
+"Same as" or "like this site" means the same pages, the same sections in the same order, the same wording, images, logo and colours.
+"Better" means a cleaner layout, consistent spacing, a good mobile layout, readable contrast, fast pages and working links,
+not different content.
+
+# Content truthfulness
+- Copy facts exactly from the sources: names, titles, phone numbers, emails, addresses, dates, fees, statistics, and affiliation
+  or registration numbers. Never invent any of them.
+- When a page or section needs content the sources do not give, keep the section, write a clearly marked placeholder such as
+  "[Add the principal's message]" and add a note. Do not make up quotes, people, clubs, events, statistics or testimonials.
+  Short neutral connecting text (a section intro, a button label) may be written when the source has none.
+- Never "Lorem ipsum".
+- Images: use the addresses from the sources (logo, banners, photos). Only when the sources have no image for a spot, use an
+  https://images.unsplash.com photo that fits, with "?auto=format&fit=crop&w=1200&q=70" (w=1600 for full-width banners).
+  Every image has an "alt" that describes it.
+- Links: every navigation entry, button and link points to a page in your JSON ("/<path>"), a full https:// address,
+  "tel:" or "mailto:". Never "#", an empty address, or a page you did not build.
+
+# Theme and layout
+- Fix a palette before writing: primary, accent, page background, alternate section background, text and muted text.
+  Use exactly these hex values everywhere. Set "dark": true only for a dark site.
+- Fonts cannot be chosen (the app has one sans-serif font) and there is no app-wide theme: show the source's character with
+  font-size, font-weight and colours in "styles", and keep repeated parts (header, footer, page banner, cards used in many places)
+  in components so their styles live in one place.
+- When the source has a logo, the header shows it as an "image" about 48-64px high, next to the site name if the source shows one.
+- Each band is a full-width "section" (padding about 64-96px top and bottom on desktop, 40-56px on mobile) with alternating
+  backgrounds; its content sits in a "container" or "stack" with "max-width": "1200px" and "margin": "0 auto".
+- One spacing scale (8, 16, 24, 32, 48, 64px) and one corner radius throughout. One h1 per page, h2 per section, h3 in cards.
+- Text contrast at least 4.5:1; light text over a photo needs a dark background colour on the hero.
+- Grids and repeaters already drop to fewer columns on small screens; use mobileStyles only for real differences
+  (a smaller hero heading, a stacked top bar).
+
+# Website patterns and the blocks for them
+- Top bar with phone, email and quick links: a "container" with "display": "flex" above the "header", inside the header component.
+- Menu with dropdowns: "navigation" for the plain items, plus a "menu" block (text = parent label, options = its sub-pages)
+  for each dropdown. "navigation" itself is one flat row.
+- Banner slider: "carousel" with every slide image and caption. One banner with text and buttons over it: "hero".
+- Feature, program or facility cards: a "grid" (columns 2-4) of "card" blocks with an icon or image, heading, text and link.
+- People (staff, management, toppers), news, events, notices, testimonials and downloads: a journey that returns the list
+  (see below) shown by a "repeater". Records in rows and columns: "datatable".
+- Counters and achievements: "stat" blocks in a "grid". FAQs: "accordion". Tabbed content: "tabs". History or steps:
+  "timeline" or "stepper". Photo galleries: "gallery". YouTube or Vimeo videos and Google Maps: "embed".
+  Documents such as PDFs: a "link" or "button" to the document address.
+- Social media: "link" blocks to the real profile addresses from the source (add a note when the source only links to a site's home page).
+- Contact, enquiry, admission and feedback forms: a "form" with fields and a "submit", on.submit running a journey.
+- Pop-up notices: a "modal" opened by a setVariable step (on page load or from a button).
+- Sticky headers, parallax, animations and hover effects cannot be built: leave them out, keep the content, and note it.
+
+# Where each piece of work happens
+- Fixed text and images: blocks with "text" and "url". No journey.
+- A list shown in more than one place or likely to change (events, staff, notices): ONE journey returns the array, and every
+  "repeater" or "datatable" showing it uses "source". Without a real API the journey has one compute step whose logic is the
+  list: { "parseJson": [ "[{\\"title\\":\\"…\\"}]" ] }. It can later be swapped for an api or query step without touching the pages.
+- Showing, hiding, filtering, counting and formatting on the page: block "logic" reading variables (for example a "search"
+  bound to vars.q and a list whose logic.items filters by it). No journey needed.
+- Anything that sends data, uses a secret, reads a database or must be trusted (form submissions, sign-in checks, payments,
+  emails): a saved API or a journey with runAt "server". Never put keys in the JSON; name a secret instead.
+- Form submissions send event.form through a saved API or server journey, then show a success notify and navigate or reset.
+  Give the sending step an onError with a friendly message that offers the phone number or email. If the requirements name no
+  backend, use a saved API with an obvious placeholder endpoint and add a note that it must be configured before publishing.
+- Journeys that load data when a page opens use trigger "pageLoad" with pageIds. Cache lists that rarely change
+  ("cache": { "scope": "session", "ttlSeconds": 600 }).
+
+# Performance
+- Few, shallow containers: do not wrap a single block in extra containers.
+- More than about six similar cards, or the same cards on several pages: a repeater with a data journey, not copied blocks.
+- Images no larger than needed (the Unsplash w= parameter). When images are linked from an old site, add a note to upload
+  them to the app's storage.
+- No "interval" journeys unless the requirements need live updates. Long tables use datatable pagination.
 ${
   adding
     ? `
@@ -1834,7 +1927,8 @@ ${existingSummary(options.existing!)}
   "components": [ { "id": "site-header", "name": "Site header", "blocks": [ Block ] } ],
   "flows": [ Flow ],
   "apis": [ Api ],
-  "variables": [ { "name": "teacherSearch", "scope": "vars", "initial": "", "description": "…" } ]${
+  "variables": [ { "name": "teacherSearch", "scope": "vars", "initial": "", "description": "…" } ],
+  "notes": [ "The principal's message was not on the site; a placeholder marks where it goes." ]${
     adding
       ? ''
       : `,
@@ -1974,8 +2068,13 @@ ${EVENTS.map((event) => `${event.key} (${event.label}${event.hint ? `: ${event.h
 # Before answering, check
 - One JSON object, nothing else; every id unique; every reference points to an id in your JSON${adding ? ' or the existing app' : ''}.
 - Every page has a unique name and path; the first page has path "".
-- Forms are "form" blocks containing fields and a "submit" block, with on.submit set.
+- Every page in the inventory exists, and every page places the shared header and footer components.
+- Every link and button goes to a page you built, a full https:// address, "tel:" or "mailto:".
+- Every fact (name, number, date, phone, address) appears in the sources; everything else is a marked placeholder listed in "notes".
+- The same palette hex values are used on every page; every image has "alt".
+- Forms are "form" blocks containing fields and a "submit" block, with on.submit set to a journey that reports success and failure.
 - Lists of records use "repeater" (cards) or "datatable" (tables) with "source" pointing to a flow.
+- Secrets, databases and trusted actions run on the server; nothing secret is in the JSON.
 
 # Example of a correct answer
 ${JSON.stringify(EXAMPLE_APP)}
@@ -1985,5 +2084,5 @@ ${JSON.stringify(EXAMPLE_APP)}
 /** Follow-up instructions when an imported answer could not be used. */
 export function fixPrompt(error: string): string {
   return `Your JSON could not be imported into Page Studio: ${error}
-Fix that problem and send the complete corrected JSON again — one JSON object only, no explanation, no code fences.`
+Fix that problem, keep everything else as it was (including "notes"), and send the complete corrected JSON again — one JSON object only, no explanation, no code fences.`
 }
