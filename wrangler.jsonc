@@ -31,7 +31,9 @@
     // Bucket for uploaded files and images.
     "S3_BUCKET": "web-bulder-config-s3",
     // Published apps are served by the "apps" Worker below (no Cloudflare Access), at this address.
-    "SITES_ORIGIN": "https://sps-edu-360-apps.srayas-parolathodi.workers.dev"
+    "SITES_ORIGIN": "https://sps-edu-360-apps.srayas-parolathodi.workers.dev",
+    // This Worker is the builder. Set explicitly so a leftover value can never switch it to "sites".
+    "APP_MODE": "builder"
   },
   // Keep variables added in the dashboard (Settings → Variables and Secrets) when deploying;
   // without this, every deploy removes plain-text variables that are not listed above.
